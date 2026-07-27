@@ -43,8 +43,8 @@
 | Шаг | Скрипт | Статус |
 |---|---|---|
 | **0.** Зеро-шот базы по фактам | `scripts/zeroshot_107m.py` | ✅ готов |
-| **в.** KazQAD → query/positive/negative | `scripts/prepare_data.py` | ⏳ |
-| **г.** Дедуп до обучения (title + near-dup) | `scripts/check_overlap.py` | ⏳ |
+| **в.** KazQAD → query/positive + hard-neg (rel=0) | `scripts/prepare_data.py` | ✅ готов |
+| **г.** Дедуп до обучения (title + near-dup + article_id) | `scripts/check_overlap.py` | ✅ готов |
 | **д.** Обучение (Kaggle T4, CachedMNRL) | `scripts/train.py` | ⏳ |
 | **е.** Оценка zero-shot vs fine-tuned + significance | `scripts/eval.py` | ⏳ |
 

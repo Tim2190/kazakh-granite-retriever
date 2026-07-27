@@ -99,32 +99,37 @@ def _is_json(path: Path) -> bool:
     return name.endswith(".jsonl") or name.endswith(".json") or name.endswith(".jsonl.gz")
 
 
-def load_corpus(path: Path) -> Dict[str, Dict[str, str]]:
-    """doc_id -> {"title":..., "text":...}. JSONL или TSV(id[,title],text), опц. .gz."""
+def load_corpus(paths) -> Dict[str, Dict[str, str]]:
+    """doc_id -> {"title":..., "text":...}. Один путь или список (корпус в нескольких партах).
+    JSONL или TSV(id[,title],text), опц. .gz."""
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
     corpus: Dict[str, Dict[str, str]] = {}
-    is_json = _is_json(path)
-    for line in _iter_lines(path):
-        if is_json:
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            did = _first_present(obj, _ID_KEYS)
-            if did is None:
-                continue
-            corpus[did] = {
-                "title": _first_present(obj, _TITLE_KEYS) or "",
-                "text": _first_present(obj, _TEXT_KEYS) or "",
-            }
-        else:
-            parts = line.split("\t")
-            if len(parts) == 2:
-                did, title, text = parts[0], "", parts[1]
-            elif len(parts) >= 3:
-                did, title, text = parts[0], parts[1], parts[2]
+    for path in paths:
+        path = Path(path)
+        is_json = _is_json(path)
+        for line in _iter_lines(path):
+            if is_json:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                did = _first_present(obj, _ID_KEYS)
+                if did is None:
+                    continue
+                corpus[did] = {
+                    "title": _first_present(obj, _TITLE_KEYS) or "",
+                    "text": _first_present(obj, _TEXT_KEYS) or "",
+                }
             else:
-                continue
-            corpus[did] = {"title": title, "text": text}
+                parts = line.split("\t")
+                if len(parts) == 2:
+                    did, title, text = parts[0], "", parts[1]
+                elif len(parts) >= 3:
+                    did, title, text = parts[0], parts[1], parts[2]
+                else:
+                    continue
+                corpus[did] = {"title": title, "text": text}
     return corpus
 
 
@@ -196,26 +201,29 @@ def inspect(root: Path) -> None:
 
 # ----------------------------------- build ------------------------------------
 
-def _resolve_corpus(root: Path, corpus_file: Optional[str]) -> Path:
-    if corpus_file:
-        p = Path(corpus_file).expanduser().resolve()
-        if not p.exists():
-            raise SystemExit(f"--corpus-file не найден: {p}")
-        return p
+def _resolve_corpus(root: Path, corpus_files: Optional[List[str]]) -> List[Path]:
+    if corpus_files:
+        out: List[Path] = []
+        for cf in corpus_files:
+            hits = [Path(p) for p in glob.glob(os.path.expanduser(cf))]
+            if not hits:
+                raise SystemExit(f"--corpus-file не найден: {cf}")
+            out += hits
+        return sorted(set(out))
     files = _data_files(_find_dir(root, "corpus"))
     if not files:
         raise SystemExit(
-            "Корпус KazQAD не найден в corpus/ (в git его часто нет).\n"
-            "Найди файл пассажей (см. диагностическую ячейку) и передай --corpus-file <путь>."
+            "Корпус KazQAD не найден в corpus/.\n"
+            "Передай --corpus-file <путь/glob> (поддержка нескольких партов и .gz)."
         )
-    return files[0]
+    return files  # все парты (kazqad-corpus-...-part-1/2/3.jsonl.gz)
 
 
-def build(root: Path, splits: List[str], corpus_file: Optional[str],
+def build(root: Path, splits: List[str], corpus_files: Optional[List[str]],
           max_neg: int) -> Tuple[List[dict], dict]:
-    cpath = _resolve_corpus(root, corpus_file)
-    print(f"Загрузка корпуса: {cpath.name} …")
-    corpus = load_corpus(cpath)
+    cpaths = _resolve_corpus(root, corpus_files)
+    print(f"Загрузка корпуса ({len(cpaths)} файл(ов)): {', '.join(p.name for p in cpaths)} …")
+    corpus = load_corpus(cpaths)
     print(f"  пассажей: {len(corpus):,}")
     has_titles = any(v["title"] for v in list(corpus.values())[:1000])
     print(f"  заголовки статей в корпусе: {'есть' if has_titles else 'НЕТ (дедуп — по article_id/тексту)'}")
@@ -278,8 +286,9 @@ def main() -> None:
                     help="Только показать найденные файлы и первые строки.")
     ap.add_argument("--splits", nargs="+", default=["train"],
                     help="Сплиты KazQAD: train | validation | test. По умолч.: train.")
-    ap.add_argument("--corpus-file", default=None,
-                    help="Явный путь к файлу корпуса (если corpus/ пуст). Поддержка .gz.")
+    ap.add_argument("--corpus-file", nargs="+", default=None,
+                    help="Явный путь(и)/glob к файлам корпуса (несколько партов, .gz). "
+                         "По умолчанию берутся все файлы из corpus/.")
     ap.add_argument("--max-neg", type=int, default=8,
                     help="Сколько hard-negatives (rel=0) тянуть на запрос. По умолч.: 8.")
     ap.add_argument("--out", default="data/kazqad_pairs.jsonl")
@@ -293,7 +302,7 @@ def main() -> None:
         inspect(root)
         return
 
-    pairs, stats = build(root, args.splits, args.corpus_file, args.max_neg)
+    pairs, stats = build(root, args.splits, args.corpus_file, args.max_neg)  # noqa
     if not pairs:
         raise SystemExit("0 пар. Проверь --corpus-file / --splits и вывод --inspect.")
 
