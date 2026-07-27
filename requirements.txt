@@ -6,6 +6,10 @@ transformers>=4.44
 sentence-transformers>=3.0
 numpy>=1.24
 
-# Шаги в—е добавят: datasets (KazQAD), rank-bm25 / pyserini (hard-negatives, гибрид),
-# datasketch (MinHash-дедуп). Их закрепим по мере написания prepare_data.py /
-# check_overlap.py / train.py, чтобы не тянуть лишнее на Шаге 0.
+# Шаг д (train.py, Kaggle) — обучение через sentence-transformers Trainer:
+datasets>=2.19
+accelerate>=0.30
+# Примечания:
+#  • check_overlap.py (Шаг г) — на чистом stdlib, доп. зависимостей не требует.
+#  • prepare_data.py (Шаг в) — тоже stdlib (gzip/json).
+#  • Гибрид ⊕BM25 на Шаге е сделаем через eval-харнесс бенчмарка (rank-bm25 там уже есть).
