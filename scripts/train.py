@@ -78,8 +78,12 @@ def main() -> None:
                     help="Сколько hard-negatives на тройку разворачивать.")
     ap.add_argument("--max-seq-len", type=int, default=512)
     ap.add_argument("--seed", type=int, default=13)
-    ap.add_argument("--fp16", action="store_true", default=True)
-    ap.add_argument("--no-fp16", dest="fp16", action="store_false")
+    # По умолчанию обучаем в fp32: надёжно (Granite грузится в bf16, а fp16-AMP
+    # GradScaler не умеет разгребать bf16-градиенты → краш). На 107m/T4 fp32 быстр.
+    ap.add_argument("--fp16", action="store_true",
+                    help="fp16 AMP (быстрее на T4). Модель кастуется в fp32, так что краша нет.")
+    ap.add_argument("--bf16", action="store_true",
+                    help="bf16 (Ampere+; на T4 не рекомендуется).")
     ap.add_argument("--push-to-hub", default=None,
                     help="Repo id на HF Hub для пуша (опционально, нужен HF_TOKEN).")
     args = ap.parse_args()
@@ -106,6 +110,8 @@ def main() -> None:
 
     model = SentenceTransformer(args.base_model)
     model.max_seq_length = args.max_seq_len
+    # Granite отдаёт веса в bf16 — приводим к fp32, иначе fp16-AMP падает на unscale.
+    model = model.to(torch.float32)
 
     # CachedMNRL (GradCache) — большой эффективный батч на T4; фолбэк для старых ST.
     try:
@@ -126,7 +132,7 @@ def main() -> None:
         learning_rate=args.lr,
         warmup_ratio=args.warmup_ratio,
         fp16=args.fp16,
-        bf16=False,
+        bf16=args.bf16,
         logging_steps=50,
         save_strategy="epoch",
         save_total_limit=1,
