@@ -1,0 +1,11 @@
+# Шаг 0 (зеро-шот 107m R1) — зависимости эвал-харнесса бенчмарка.
+# Прогон идёт через src.eval.run_dense из Kaz-RAG-search-benchmark,
+# поэтому здесь минимальный набор для dense-инференса Granite R1.
+torch>=2.1
+transformers>=4.44
+sentence-transformers>=3.0
+numpy>=1.24
+
+# Шаги в—е добавят: datasets (KazQAD), rank-bm25 / pyserini (hard-negatives, гибрид),
+# datasketch (MinHash-дедуп). Их закрепим по мере написания prepare_data.py /
+# check_overlap.py / train.py, чтобы не тянуть лишнее на Шаге 0.

@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- kazakh-granite-retriever (проектное) ---
+# Кэши эмбеддингов корпуса (крупные бинарники, пересчитываемые)
+results/emb_*.npy
+results/emb_*.ids.json
+# Скачанные датасеты (KazQAD и т.п.) и чекпойнты моделей
+data/*
+!data/.gitkeep
+models/
+checkpoints/
+*.safetensors
+# Артефакты метрик оставляем в репо (results/*.json, *.md), не игнорируем
