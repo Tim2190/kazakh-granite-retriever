@@ -39,32 +39,37 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 
-def load_examples(path: Path, max_neg_per_pair: int
+def load_examples(paths, max_neg_per_pair: int
                   ) -> Tuple[List[dict], List[dict]]:
-    """JSONL → (триплеты[a,p,n], пары[a,p]). Триплеты разворачиваются по негативам."""
+    """Один или несколько JSONL → (триплеты[a,p,n], пары[a,p]).
+    Триплеты разворачиваются по негативам; строки без негативов идут в пары."""
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
     triplets: List[dict] = []
     pairs: List[dict] = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            r = json.loads(line)
-            q, pos = r.get("query"), r.get("positive")
-            if not q or not pos:
-                continue
-            negs = [n for n in (r.get("negatives") or []) if n][:max_neg_per_pair]
-            if negs:
-                for n in negs:
-                    triplets.append({"anchor": q, "positive": pos, "negative": n})
-            else:
-                pairs.append({"anchor": q, "positive": pos})
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                q, pos = r.get("query"), r.get("positive")
+                if not q or not pos:
+                    continue
+                negs = [n for n in (r.get("negatives") or []) if n][:max_neg_per_pair]
+                if negs:
+                    for n in negs:
+                        triplets.append({"anchor": q, "positive": pos, "negative": n})
+                else:
+                    pairs.append({"anchor": q, "positive": pos})
     return triplets, pairs
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Fine-tune Granite-107m R1 на KazQAD (dedup)")
-    ap.add_argument("--data", required=True, help="Очищенный JSONL (выход check_overlap.py).")
+    ap.add_argument("--data", required=True, nargs="+",
+                    help="Один или несколько JSONL (напр. синтетика + KazQAD dedup).")
     ap.add_argument("--base-model", default="ibm-granite/granite-embedding-107m-multilingual")
     ap.add_argument("--output-dir", default="models/granite-107m-kk")
     ap.add_argument("--epochs", type=float, default=2.0)
@@ -97,10 +102,11 @@ def main() -> None:
     )
     torch.manual_seed(args.seed)
 
-    triplets, pairs = load_examples(Path(args.data), args.max_neg_per_pair)
+    triplets, pairs = load_examples([Path(p) for p in args.data], args.max_neg_per_pair)
+    print(f"Данные: {', '.join(args.data)}")
     print(f"Триплетов (a,p,hard-neg): {len(triplets):,} | пар (a,p): {len(pairs):,}")
     if not triplets and not pairs:
-        raise SystemExit("Пустой датасет — проверь --data (выход check_overlap.py).")
+        raise SystemExit("Пустой датасет — проверь --data.")
 
     train_dataset: Dict[str, Dataset] = {}
     if triplets:
