@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -74,8 +75,12 @@ def main() -> None:
                              top_k=max(args.top_k, 10), batch_size=args.batch_size,
                              max_seq_len=args.max_seq_len)
 
-    res_base = run_model(args.base_model, "results/emb_granite_107m")
-    res_ft = run_model(args.finetuned, "results/emb_granite_107m_ft")
+    def cache_key(m: str) -> str:
+        # уникальный кэш эмбеддингов на КАЖДУЮ модель (иначе 278m подтянет 107m-кэш)
+        return "results/emb_" + re.sub(r"[^0-9A-Za-z]+", "_", m).strip("_")[-60:]
+
+    res_base = run_model(args.base_model, cache_key(args.base_model))
+    res_ft = run_model(args.finetuned, cache_key(args.finetuned) + "_ft")
     run_base, run_ft = res_base["run"], res_ft["run"]
 
     categories = sorted(set(cats.values()))
