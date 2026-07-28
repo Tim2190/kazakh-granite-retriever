@@ -41,6 +41,8 @@ import math
 import os
 import random
 import sys
+import time
+import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -95,9 +97,91 @@ class InvertedBM25:
         return [self.doc_ids[i] for i, _ in ranked]
 
 
-def build_analyzer(benchmark_root: str, stemmer_name: str):
+class KazakhStemmerProd:
+    """Production-клиент казахского стеммера: POST /stem/batch, X-API-Key,
+    до 1000 слов/запрос, 5 req/сек. План Free: 1000 запросов/мес (=до 1M слов).
+    Кэш на диск (стемминг детерминирован → каждое слово запрашивается раз навсегда)."""
+    name = "kazakh"
+    BASE = "https://kazakh-stemmer-590833642796.europe-west1.run.app"
+
+    def __init__(self, cache_path="data/stem_cache.json", max_per_sec=5, batch=1000):
+        self.key = os.environ.get("KAZAKH_STEMMER_KEY")
+        if not self.key:
+            raise SystemExit("Нет KAZAKH_STEMMER_KEY в окружении (это X-API-Key стеммера).")
+        self.endpoint = self.BASE + "/stem/batch"
+        self.cache_path = cache_path
+        self.batch = batch
+        self.interval = 1.0 / max_per_sec
+        self.cache: Dict[str, str] = {}
+        if cache_path and os.path.exists(cache_path):
+            self.cache = json.load(open(cache_path, encoding="utf-8"))
+        self.requests_made = 0
+
+    @staticmethod
+    def _trivial(t: str) -> bool:
+        return t.isdigit() or len(t) <= 1
+
+    def _post(self, words: List[str]):
+        body = json.dumps({"words": words}).encode("utf-8")
+        req = urllib.request.Request(
+            self.endpoint, data=body, method="POST",
+            headers={"X-API-Key": self.key, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    def _save(self):
+        if self.cache_path:
+            os.makedirs(os.path.dirname(self.cache_path) or ".", exist_ok=True)
+            json.dump(self.cache, open(self.cache_path, "w", encoding="utf-8"),
+                      ensure_ascii=False)
+
+    def warm(self, tokens):
+        uniq = [t for t in set(tokens) if t not in self.cache and not self._trivial(t)]
+        for t in set(tokens):
+            if self._trivial(t):
+                self.cache[t] = t
+        n_req = -(-len(uniq) // self.batch)
+        print(f"Стеммер (prod): {len(uniq):,} уникальных слов → ~{n_req} запросов "
+              f"(бюджет Free: 1000/мес). Кэш: {self.cache_path}")
+        for i in range(0, len(uniq), self.batch):
+            chunk = uniq[i:i + self.batch]
+            try:
+                for it in self._post(chunk):
+                    self.cache[it["word"]] = it.get("stem") or it["word"]
+                self.requests_made += 1
+            except Exception as e:
+                print(f"  [warn] батч стеммера упал ({e}) — слова оставлены как есть")
+                for w in chunk:
+                    self.cache[w] = w
+            if (i // self.batch) % 20 == 0:
+                self._save()
+            time.sleep(self.interval)
+        self._save()
+        print(f"Стеммер (prod): запросов сделано {self.requests_made}")
+
+    def stem(self, token: str) -> str:
+        if token in self.cache:
+            return self.cache[token]
+        if self._trivial(token):
+            return token
+        try:                       # не прогрето — одиночный запрос (лучше warm заранее)
+            s = (self._post([token])[0].get("stem")) or token
+            self.requests_made += 1
+        except Exception:
+            s = token
+        self.cache[token] = s
+        return s
+
+
+def build_analyzer(benchmark_root: str, stemmer_name: str, stem_cache: str):
     sys.path.insert(0, str(Path(benchmark_root).resolve()))
     from src.preprocess.tokenize import tokenize
+    if stemmer_name == "kazakh-prod":
+        stemmer = KazakhStemmerProd(cache_path=stem_cache)
+
+        def analyze(text: str) -> List[str]:
+            return [stemmer.stem(t) for t in tokenize(text)]
+        return analyze, tokenize, stemmer
     from src.preprocess.stemmer import get_stemmer, stem_tokens
     stemmer = get_stemmer(stemmer_name)
 
@@ -112,8 +196,12 @@ def main() -> None:
     ap.add_argument("--pairs", required=True, help="JSONL с query/positive/positive_id.")
     ap.add_argument("--corpus", required=True, help="Путь/glob к пассажам KazQAD (.jsonl[.gz]).")
     ap.add_argument("--exclude-article-ids", default=None, help="Статьи бенчмарка (антилик пула).")
-    ap.add_argument("--stemmer", choices=["identity", "kazakh"], default="identity",
-                    help="identity — быстро (проверить рычаг); kazakh — твой сервис (качество).")
+    ap.add_argument("--stemmer", choices=["identity", "kazakh", "kazakh-prod"],
+                    default="identity",
+                    help="identity — быстро; kazakh — demo-сервис (30 req/min); "
+                         "kazakh-prod — production (/stem/batch, X-API-Key из KAZAKH_STEMMER_KEY).")
+    ap.add_argument("--stem-cache", default="data/stem_cache.json",
+                    help="Файл кэша стемминга (слово→корень), резюмируемо между прогонами.")
     ap.add_argument("--pool-sample", type=int, default=80000,
                     help="Размер пула кандидатов-негативов (позитивы включаются всегда).")
     ap.add_argument("--n-neg", type=int, default=4, help="Сколько негативов на запрос.")
@@ -125,7 +213,7 @@ def main() -> None:
     args = ap.parse_args()
     random.seed(args.seed)
 
-    analyze, tokenize, stemmer = build_analyzer(args.benchmark_root, args.stemmer)
+    analyze, tokenize, stemmer = build_analyzer(args.benchmark_root, args.stemmer, args.stem_cache)
 
     pairs = [json.loads(l) for l in open(args.pairs, encoding="utf-8") if l.strip()]
     print(f"Пар: {len(pairs):,}")
