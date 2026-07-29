@@ -62,6 +62,9 @@ def main() -> None:
                     help="kazakh — demo-сервис (медленно); kazakh-prod — production "
                          "(X-API-Key из KAZAKH_STEMMER_KEY, быстрый прогрев).")
     ap.add_argument("--rrf-k", type=int, default=60)
+    ap.add_argument("--vs-model", default=None,
+                    help="Доп. модель для paired-сравнения с дообученной (напр. shyngys-e5 "
+                         "— короткое имя из бенчмарка, чтобы применились e5-префиксы).")
     args = ap.parse_args()
 
     bench_root = _locate_benchmark(args.benchmark_root)
@@ -91,6 +94,7 @@ def main() -> None:
     res_base = run_model(args.base_model, cache_key(args.base_model))
     res_ft = run_model(args.finetuned, cache_key(args.finetuned) + "_ft")
     run_base, run_ft = res_base["run"], res_ft["run"]
+    run_vs = run_model(args.vs_model, cache_key(args.vs_model))["run"] if args.vs_model else None
 
     run_bm25 = run_hyb = None
     if args.hybrid:
@@ -172,11 +176,33 @@ def main() -> None:
                   f"{r['ndcg@10_finetuned']:>12.3f}{r['delta']:>+9.3f}{r['p_value']:>8.3f}{sig}")
         print("  * = значимо (p<0.05, paired bootstrap 10k). Δ = fine-tuned − zero-shot.")
 
+    vs_rows = []
+    if run_vs is not None:
+        print(f"\n=== Дообученная vs {args.vs_model} (nDCG@10, paired bootstrap) ===")
+        print(f"{'scope':<16}{'fine-tuned':>12}{'vs-model':>12}{'Δ':>9}{'p':>8}")
+        for name, sub in ([("ALL", qrels)] +
+                          [(c, {qi: rel for qi, rel in qrels.items()
+                                if qi in {q for q, cc in cats.items() if cc == c}})
+                           for c in categories]):
+            ft_n = metrics.evaluate_run(run_ft, sub, metrics=("ndcg",), ks=(10,))["ndcg@10"]
+            vs_n = metrics.evaluate_run(run_vs, sub, metrics=("ndcg",), ks=(10,))["ndcg@10"]
+            # paired_bootstrap(A, B) → Δ = B − A; берём Δ = fine-tuned − vs
+            d, p, _ = metrics.paired_bootstrap(run_vs, run_ft, sub, metric="ndcg",
+                                               k=10, n_resamples=args.n_resamples)
+            sig = "*" if p < 0.05 else " "
+            print(f"{name:<16}{ft_n:>12.3f}{vs_n:>12.3f}{d:>+9.3f}{p:>8.3f}{sig}")
+            vs_rows.append({"scope": name, "finetuned": round(ft_n, 4),
+                            "vs_model": round(vs_n, 4), "delta": round(d, 4),
+                            "p_value": round(p, 4)})
+        print(f"  * = разница значима (p<0.05). Δ = fine-tuned − {args.vs_model}.")
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     json.dump({
         "base_model": args.base_model,
         "finetuned": args.finetuned,
+        "vs_model": args.vs_model,
+        "vs_rows": vs_rows,
         "n_resamples": args.n_resamples,
         "rows": rows,
         "reference_ndcg10_all": {
