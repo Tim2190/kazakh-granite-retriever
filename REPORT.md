@@ -43,6 +43,18 @@
 kazakh-e5, а гибрид с BM25 — её гибрид и базовый e5. Сильные общие мультиязычные
 модели (bge-m3, jina-v3) впереди — это ориентир для дальнейшей работы.
 
+## Бенчмарки и источники
+
+- **[Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark)** —
+  основной бенчмарк (казахская Википедия). Источник сравнительного рейтинга и
+  eval-харнесса: `src/retrieval` (DenseIndex, BM25 + казахский стеммер), `src/eval`
+  (метрики, paired bootstrap). Наши `eval.py` / `eval_ood.py` импортируют его напрямую —
+  цифры считаются тем же кодом, что и у бенчмарка.
+- **[RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ)** —
+  независимый OOD-бенчмарк (официальные речи akorda.kz / nazarbayev.kz).
+- **[KazQAD](https://github.com/IS2AI/KazQAD)** — обучающие пассажи (казахская Википедия,
+  CC BY-SA 4.0).
+
 ## Как построена
 
 Полный пайплайн — 8 скриптов в `scripts/`.

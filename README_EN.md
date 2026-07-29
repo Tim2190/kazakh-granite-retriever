@@ -35,6 +35,20 @@ Top tier: the dense model beats the specialized kazakh-e5, and the hybrid beats 
 BM25 combo and e5-base. Strong general models (bge-m3, jina-v3) are ahead — a target
 for further work.
 
+## Benchmarks & sources
+
+Ratings and evaluation run on these benchmarks; our `eval.py` / `eval_ood.py`
+**reuse their harness and metrics** so the numbers are comparable:
+
+- **[Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark)** —
+  the primary benchmark (Kazakh Wikipedia, 300 queries, 8,370 passages). Source of the
+  comparative leaderboard and the eval harness: `src/retrieval` (DenseIndex, BM25 +
+  Kazakh stemmer), `src/eval` (metrics, paired bootstrap) — imported directly by our scripts.
+- **[RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ)** —
+  the independent OOD benchmark (official speeches, akorda.kz / nazarbayev.kz).
+- **[KazQAD](https://github.com/IS2AI/KazQAD)** — source of the training passages
+  (Kazakh Wikipedia, CC BY-SA 4.0).
+
 ## Pipeline
 
 | step | script |
