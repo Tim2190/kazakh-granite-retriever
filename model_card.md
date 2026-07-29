@@ -17,37 +17,14 @@ tags:
 
 A compact (278M) sentence-embedding model for **Kazakh** search and RAG, fine-tuned from
 [`ibm-granite/granite-embedding-278m-multilingual`](https://huggingface.co/ibm-granite/granite-embedding-278m-multilingual)
-(R1). Kazakh is **not** in Granite's official language list — this model shows that
-targeted fine-tuning closes that gap in practice: it outperforms the specialized Kazakh
-fine-tunes, improves the base on two independent domains, and stays lightweight (~556 MB, fp16).
+(R1). Kazakh is **not** in Granite's official language list — this model adapts it to Kazakh
+retrieval with targeted fine-tuning, while staying lightweight (~556 MB, fp16).
 
 - **768-dim** embeddings, cosine similarity, max sequence length **256**, **no prompt prefixes**.
-- Full method, data and scripts: **[github.com/Tim2190/kazakh-granite-retriever](https://github.com/Tim2190/kazakh-granite-retriever)**.
-
-## Results (nDCG@10)
-
-**Primary benchmark** — [Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark)
-(Kazakh Wikipedia, 300 queries, 8,370 passages):
-
-| # | system | ALL |
-|---|---|---|
-| 1 | bge-m3 | 0.866 |
-| 2 | jina-v3 | 0.821 |
-| **3** | **Granite-278m-kk ⊕ BM25 (hybrid)** | **0.814** |
-| 4 | kazakh-e5 ⊕ BM25 | 0.808 |
-| 6 | multilingual-e5-base | 0.785 |
-| **8** | **Granite-278m-kk (this model, dense)** | **0.752** |
-| 9 | kazakh-e5 (specialized) | 0.747 |
-| 10 | Granite-R1 278m (base, zero-shot) | 0.672 |
-
-The dense model beats the specialized Kazakh **kazakh-e5** (0.752 vs 0.747) and the base
-Granite (0.672 → 0.752); the BM25 hybrid beats the kazakh-e5⊕BM25 reference (0.808) and
-e5-base (0.785). Strong general models (bge-m3, jina-v3) remain ahead.
-
-**Independent OOD check** — [RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ)
-(official speeches, a different domain, unseen in training): the model improves over the
-base **on every tier significantly** (ALL 0.428 → 0.507; factoid, paraphrase, low_overlap
-all p<0.05) — the gain generalizes, it is not overfitting to one benchmark.
+- Fine-tuned on **40K synthetic Kazakh (query → passage) pairs** over Kazakh Wikipedia
+  passages + [KazQAD](https://github.com/IS2AI/KazQAD).
+- Full method, data, evaluation and scripts:
+  **[github.com/Tim2190/kazakh-granite-retriever](https://github.com/Tim2190/kazakh-granite-retriever)**.
 
 ## Usage
 
@@ -60,8 +37,8 @@ passages = ["Балқаш — Қазақстанның оңтүстік-шығы
 scores = model.similarity(model.encode([query]), model.encode(passages))
 ```
 
-No special query/passage prefixes are needed. For the strongest setup, fuse the dense
-scores with BM25 (+ a Kazakh stemmer) via Reciprocal Rank Fusion — see the
+No special query/passage prefixes are needed. For stronger retrieval you can fuse the dense
+scores with a lexical channel (BM25 + a Kazakh stemmer) via Reciprocal Rank Fusion — see the
 [eval scripts](https://github.com/Tim2190/kazakh-granite-retriever) (`eval.py --hybrid`).
 
 ## Training
@@ -74,6 +51,13 @@ scores with BM25 (+ a Kazakh stemmer) via Reciprocal Rank Fusion — see the
   lr 1e-5, max_seq_len 256, single T4 (~1.9 h).
 - **Base:** `ibm-granite/granite-embedding-278m-multilingual` (Apache-2.0).
 
+## Evaluation
+
+Fine-tuning **significantly improves the base Granite** on Kazakh retrieval, and the gain
+**generalizes to an out-of-domain set** (official speeches). Full benchmarks, baselines and
+paired-bootstrap significance tests are in the
+[project repository](https://github.com/Tim2190/kazakh-granite-retriever).
+
 ## License & attribution
 
 Training passages come from **KazQAD** / Kazakh Wikipedia (**CC BY-SA 4.0**); the model is
@@ -83,4 +67,6 @@ Granite model is Apache-2.0.
 ## Citation
 
 Please cite the project repository and the underlying benchmarks/datasets
-(Kaz-RAG-search-benchmark, RAG-Two-Pass-Retrieval-QAZ, KazQAD) linked above.
+([Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark),
+[RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ),
+[KazQAD](https://github.com/IS2AI/KazQAD)).
