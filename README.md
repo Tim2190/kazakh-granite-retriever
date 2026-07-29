@@ -36,13 +36,18 @@ BM25 и e5-base. Сильные общие модели (bge-m3, jina-v3) впе
 | шаг | скрипт |
 |---|---|
 | выбор базы (zero-shot) | `scripts/zeroshot_107m.py` |
-| KazQAD → пары + hard-neg | `scripts/prepare_data.py` |
+| KazQAD → пары + KazQAD-негативы (rel=0) | `scripts/prepare_data.py` |
 | антилик против бенчмарка | `scripts/check_overlap.py` |
 | синтетика (40K пар) | `scripts/generate_synthetic.py` |
-| майнинг hard-negatives (BM25+стеммер) | `scripts/mine_hard_negatives.py` |
-| обучение (T4, CachedMNRL) | `scripts/train.py` |
-| оценка + гибрид (осн. бенчмарк) | `scripts/eval.py` |
+| обучение (T4, CachedMNRL) — синтетика + KazQAD gold | `scripts/train.py` |
+| оценка + гибрид с BM25(казахский стеммер) | `scripts/eval.py` |
 | оценка (OOD: речи) | `scripts/eval_ood.py` |
+| _(абляция, не в финале)_ BM25-майнинг hard-neg | `scripts/mine_hard_negatives.py` |
+
+Финальная модель обучена на **синтетике (40K) + KazQAD gold** (с его негативами `rel=0`).
+Казахский стеммер задействован **только в BM25-канале гибрида** на этапе оценки.
+BM25-майнинг hard-negatives (`mine_hard_negatives.py`) исследован как абляция — прироста
+не дал, в финальную модель не вошёл.
 
 ## Данные и лицензия
 
