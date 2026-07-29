@@ -1,5 +1,7 @@
 # kazakh-granite-retriever
 
+*English — [README_EN.md](README_EN.md).*
+
 **Granite-278m-kk** — компактная (278M) embedding-модель для казахского поиска и RAG,
 дообученная из `ibm-granite/granite-embedding-278m-multilingual` (R1). Казахского в
 официальном списке Granite нет — модель показывает, что таргетированный файнтюн
