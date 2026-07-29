@@ -57,7 +57,10 @@ def main() -> None:
     ap.add_argument("--n-resamples", type=int, default=10000)
     ap.add_argument("--hybrid", action="store_true",
                     help="Также посчитать BM25 и гибрид FT⊕BM25 (RRF).")
-    ap.add_argument("--bm25-stemmer", choices=["identity", "kazakh"], default="identity")
+    ap.add_argument("--bm25-stemmer", choices=["identity", "kazakh", "kazakh-prod"],
+                    default="identity",
+                    help="kazakh — demo-сервис (медленно); kazakh-prod — production "
+                         "(X-API-Key из KAZAKH_STEMMER_KEY, быстрый прогрев).")
     ap.add_argument("--rrf-k", type=int, default=60)
     args = ap.parse_args()
 
@@ -92,11 +95,26 @@ def main() -> None:
     run_bm25 = run_hyb = None
     if args.hybrid:
         from src.retrieval.bm25 import BM25Index, default_analyzer
-        from src.preprocess.stemmer import get_stemmer
-        print(f"\n>>> BM25 (стеммер={args.bm25_stemmer})")
-        bm = BM25Index(analyzer=default_analyzer(get_stemmer(args.bm25_stemmer)))
-        bm.index(dataset.load_corpus(corpus))
-        run_bm25 = bm.run(dataset.queries_as_map(q), top_k=DEPTH)
+        corpus_pairs = dataset.load_corpus(corpus)
+        qmap_bm = dataset.queries_as_map(q)
+        if args.bm25_stemmer == "kazakh-prod":
+            from mine_hard_negatives import KazakhStemmerProd
+            from src.preprocess.tokenize import tokenize
+            stemmer = KazakhStemmerProd(cache_path="results/stem_cache.json")
+            uniq = set()
+            for _, t in corpus_pairs:
+                uniq.update(tokenize(t))
+            for t in qmap_bm.values():
+                uniq.update(tokenize(t))
+            print(f"\n>>> Прогрев казахского стеммера (prod): {len(uniq):,} уникальных слов…")
+            stemmer.warm(uniq)
+            analyzer = default_analyzer(stemmer)
+        else:
+            from src.preprocess.stemmer import get_stemmer
+            analyzer = default_analyzer(get_stemmer(args.bm25_stemmer))
+        print(f">>> BM25 (стеммер={args.bm25_stemmer})")
+        bm = BM25Index(analyzer=analyzer).index(corpus_pairs)
+        run_bm25 = bm.run(qmap_bm, top_k=DEPTH)
 
         def rrf(runs, k, top_k=10):
             fused = {}

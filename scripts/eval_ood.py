@@ -89,8 +89,9 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--max-seq-len", type=int, default=256)
     ap.add_argument("--n-resamples", type=int, default=10000)
-    ap.add_argument("--bm25-stemmer", choices=["identity", "kazakh"], default="identity",
-                    help="Стеммер для BM25-бейзлайна (kazakh — demo-сервис бенчмарка).")
+    ap.add_argument("--bm25-stemmer", choices=["identity", "kazakh", "kazakh-prod"],
+                    default="identity",
+                    help="kazakh — demo-сервис; kazakh-prod — production (KAZAKH_STEMMER_KEY).")
     ap.add_argument("--rrf-k", type=int, default=60, help="Константа RRF для гибрида.")
     args = ap.parse_args()
 
@@ -116,8 +117,22 @@ def main() -> None:
         idx.index(corpus)
         return idx.run(qmap, top_k=DEPTH)
 
-    print(f"\n>>> BM25 (стеммер={args.bm25_stemmer})")
-    bm = BM25Index(analyzer=default_analyzer(get_stemmer(args.bm25_stemmer))).index(corpus)
+    if args.bm25_stemmer == "kazakh-prod":
+        from mine_hard_negatives import KazakhStemmerProd
+        from src.preprocess.tokenize import tokenize
+        st = KazakhStemmerProd(cache_path="results/stem_cache.json")
+        uniq = set()
+        for _, t in corpus:
+            uniq.update(tokenize(t))
+        for t in qmap.values():
+            uniq.update(tokenize(t))
+        print(f"\n>>> Прогрев казахского стеммера (prod): {len(uniq):,} уникальных слов…")
+        st.warm(uniq)
+        analyzer = default_analyzer(st)
+    else:
+        analyzer = default_analyzer(get_stemmer(args.bm25_stemmer))
+    print(f">>> BM25 (стеммер={args.bm25_stemmer})")
+    bm = BM25Index(analyzer=analyzer).index(corpus)
     run_bm25 = bm.run(qmap, top_k=DEPTH)
     run_base = run_dense(args.base_model)
     run_ft = run_dense(args.finetuned)
