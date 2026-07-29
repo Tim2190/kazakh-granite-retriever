@@ -89,6 +89,8 @@ def main() -> None:
                     help="fp16 AMP (быстрее на T4). Модель кастуется в fp32, так что краша нет.")
     ap.add_argument("--bf16", action="store_true",
                     help="bf16 (Ampere+; на T4 не рекомендуется).")
+    ap.add_argument("--save-fp32", action="store_true",
+                    help="Сохранить модель в fp32 (~1.1 ГБ). По умолчанию fp16 (~556 МБ).")
     ap.add_argument("--push-to-hub", default=None,
                     help="Repo id на HF Hub для пуша (опционально, нужен HF_TOKEN).")
     args = ap.parse_args()
@@ -140,9 +142,8 @@ def main() -> None:
         fp16=args.fp16,
         bf16=args.bf16,
         logging_steps=50,
-        save_strategy="epoch",
-        save_total_limit=1,
-        seed=args.seed,
+        save_strategy="no",   # без промежуточных чекпойнтов с optimizer state
+        seed=args.seed,       # (иначе папка модели раздувается на ~3 ГБ Adam-состояния)
         dataloader_drop_last=True,     # ровные батчи → корректные in-batch негативы
         report_to=[],
     )
@@ -157,9 +158,12 @@ def main() -> None:
 
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    if not args.save_fp32:
+        model = model.half()          # fp16 для инференса → ~556 МБ вместо ~1.1 ГБ (fp32)
     model.save(str(out))
-    print(f"\nМодель сохранена → {out}")
-    print("Дальше: eval.py — прогон на бенчмарке + paired bootstrap vs зеро-шот (0.617).")
+    dtype = "fp32" if args.save_fp32 else "fp16"
+    print(f"\nМодель сохранена ({dtype}) → {out}")
+    print("Дальше: eval.py — прогон на бенчмарке + paired bootstrap vs зеро-шот.")
 
     if args.push_to_hub:
         model.push_to_hub(args.push_to_hub)
