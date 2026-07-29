@@ -158,7 +158,7 @@ base on two domains. Untested levers that could push further, given motivation:
 
 ```python
 from sentence_transformers import SentenceTransformer
-m = SentenceTransformer("<HF model repo>")            # link to be added
+m = SentenceTransformer("Tim2190/granite-278m-kk")   # 🤗 fp16, ~556 MB
 emb = m.encode(["Балқаш көлі қайда орналасқан?"])     # no special prefixes
 ```
 
@@ -170,6 +170,8 @@ For the strongest setup, use the BM25 hybrid (RRF); see `eval.py --hybrid` and `
   KazQAD passages (Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD).
 - **Scripts:** `zeroshot_107m.py`, `prepare_data.py`, `check_overlap.py`,
   `generate_synthetic.py`, `mine_hard_negatives.py`, `train.py`, `eval.py`, `eval_ood.py`.
+- **Model:** [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
+  (fp16, ~556 MB; eval directly from HF reproduces the project numbers — ALL 0.750).
 - **Run reports:** `results/*.md`.
 
 ## Methodological notes

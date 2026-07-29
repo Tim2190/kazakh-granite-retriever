@@ -2,6 +2,8 @@
 
 *English — [README_EN.md](README_EN.md).*
 
+**🤗 Модель на HuggingFace: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)** (fp16, ~556 МБ).
+
 **Granite-278m-kk** — компактная (278M) embedding-модель для казахского поиска и RAG,
 дообученная из `ibm-granite/granite-embedding-278m-multilingual` (R1). Казахского в
 официальном списке Granite нет — модель показывает, что таргетированный файнтюн
@@ -70,4 +72,5 @@ BM25-майнинг hard-negatives (`mine_hard_negatives.py`) исследова
 `data/synthetic_pairs.jsonl` — 40 084 пары, синтетика на пассажах **KazQAD** (казахская
 Википедия, **CC BY-SA 4.0**, атрибуция KazQAD). Полные результаты — в `results/`.
 
-Модель будет опубликована на HuggingFace (ссылка добавится).
+Модель: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
+(fp16, ~556 МБ; воспроизводит цифры проекта, ALL 0.750 из HF).

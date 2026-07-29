@@ -2,6 +2,8 @@
 
 *Русская версия — [README.md](README.md).*
 
+**🤗 Model on HuggingFace: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)** (fp16, ~556 MB).
+
 **Granite-278m-kk** — a compact (278M) embedding model for Kazakh search and RAG,
 fine-tuned from `ibm-granite/granite-embedding-278m-multilingual` (R1). Kazakh is not
 in Granite's official language list — this model shows targeted fine-tuning closes
@@ -72,4 +74,5 @@ ablation — it gave no improvement and is not in the final model.
 `data/synthetic_pairs.jsonl` — 40,084 pairs, synthetic over **KazQAD** passages
 (Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD). Full results in `results/`.
 
-The model will be published on HuggingFace (link to be added).
+Model: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
+(fp16, ~556 MB; reproduces the project numbers, ALL 0.750 from HF).

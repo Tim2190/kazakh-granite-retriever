@@ -157,7 +157,7 @@ kazakh-e5, а гибрид с BM25 — её гибрид и базовый e5. �
 
 ```python
 from sentence_transformers import SentenceTransformer
-m = SentenceTransformer("<HF-репозиторий модели>")   # ссылка будет добавлена
+m = SentenceTransformer("Tim2190/granite-278m-kk")   # 🤗 fp16, ~556 МБ
 emb = m.encode(["Балқаш көлі қайда орналасқан?"])     # без спец-префиксов
 ```
 
@@ -169,6 +169,8 @@ emb = m.encode(["Балқаш көлі қайда орналасқан?"])     #
   пассажах KazQAD (казахская Википедия, **CC BY-SA 4.0**, атрибуция KazQAD).
 - **Скрипты:** `zeroshot_107m.py`, `prepare_data.py`, `check_overlap.py`,
   `generate_synthetic.py`, `mine_hard_negatives.py`, `train.py`, `eval.py`, `eval_ood.py`.
+- **Модель:** [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
+  (fp16, ~556 МБ; eval прямо из HF воспроизводит цифры проекта — ALL 0.750).
 - **Отчёты по прогонам:** `results/*.md`.
 
 ## Методологические заметки
