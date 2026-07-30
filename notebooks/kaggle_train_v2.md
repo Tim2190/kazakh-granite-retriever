@@ -66,10 +66,18 @@ os.environ["HF_TOKEN"] = ""     # только если будешь пушит�
 ```python
 # сохранить v1 как ревизию ПЕРЕД перезаписью (один раз, из среды с доступом к HF):
 #   huggingface-cli repo tag create Tim2190/granite-278m-kk v1
-from sentence_transformers import SentenceTransformer
-m = SentenceTransformer("/kaggle/working/granite-278m-kk-v2")
-m.push_to_hub("Tim2190/granite-278m-kk", token=os.environ["HF_TOKEN"])
+import os
+if os.environ.get("HF_TOKEN"):
+    from sentence_transformers import SentenceTransformer
+    m = SentenceTransformer("/kaggle/working/granite-278m-kk-v2")
+    m.push_to_hub("Tim2190/granite-278m-kk", token=os.environ["HF_TOKEN"])
+else:
+    print("HF_TOKEN пуст — пропускаю пуш (это норм: сначала eval@512, потом уже HF).")
 ```
+
+> ⚠️ Если гонишь как «Save & Run All» с пустым `HF_TOKEN` — БЕЗ этого `if` ячейка
+> роняет весь ран (`LocalProtocolError`) и Kaggle красит его «failed», хотя модель
+> уже сохранена в Output. С `if` — ран зелёный, модель на месте.
 
 ## Дальше — честный замер (не пропускать!)
 
