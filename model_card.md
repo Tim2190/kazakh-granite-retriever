@@ -20,9 +20,9 @@ A compact (278M) sentence-embedding model for **Kazakh** search and RAG, fine-tu
 (R1). Kazakh is **not** in Granite's official language list — this model adapts it to Kazakh
 retrieval with targeted fine-tuning, while staying lightweight (~556 MB, fp16).
 
-- **768-dim** embeddings, cosine similarity, max sequence length **256**, **no prompt prefixes**.
-- Fine-tuned on **40K synthetic Kazakh (query → passage) pairs** over Kazakh Wikipedia
-  passages + [KazQAD](https://github.com/IS2AI/KazQAD).
+- **768-dim** embeddings, cosine similarity, max sequence length **512**, **no prompt prefixes**.
+- Current revision is **v2** (morphology-hardened). The previous model is kept as
+  `revision="v1"`.
 - Full method, data, evaluation and scripts:
   **[github.com/Tim2190/kazakh-granite-retriever](https://github.com/Tim2190/kazakh-granite-retriever)**.
 
@@ -31,10 +31,11 @@ retrieval with targeted fine-tuning, while staying lightweight (~556 MB, fp16).
 ```python
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("Tim2190/granite-278m-kk")   # ~556 MB, fp16
+model = SentenceTransformer("Tim2190/granite-278m-kk")   # ~556 MB, fp16 (v2)
 query = "Балқаш көлі қайда орналасқан?"
 passages = ["Балқаш — Қазақстанның оңтүстік-шығысындағы тұйық көл ..."]
 scores = model.similarity(model.encode([query]), model.encode(passages))
+# previous version: SentenceTransformer("Tim2190/granite-278m-kk", revision="v1")
 ```
 
 No special query/passage prefixes are needed. For stronger retrieval you can fuse the dense
@@ -43,19 +44,25 @@ scores with a lexical channel (BM25 + a Kazakh stemmer) via Reciprocal Rank Fusi
 
 ## Training
 
-- **Data:** 40,084 synthetic Kazakh (query → passage) pairs generated over Kazakh
-  Wikipedia passages from [KazQAD](https://github.com/IS2AI/KazQAD), plus KazQAD's
-  labeled gold pairs and hard negatives. Training data is de-duplicated against the
-  evaluation benchmarks (anti-leak).
+- **Data:** 57,369 synthetic Kazakh (query → passage) pairs over Kazakh Wikipedia passages
+  from [KazQAD](https://github.com/IS2AI/KazQAD), each with a **hard negative mined via BM25
+  with a Kazakh stemmer**, plus 3,733 KazQAD labeled gold pairs (with their rel=0 negatives)
+  — 61,102 training examples. Training data is de-duplicated against the evaluation
+  benchmarks (anti-leak).
 - **Objective:** CachedMultipleNegativesRankingLoss (sentence-transformers), 2 epochs,
-  lr 1e-5, max_seq_len 256, single T4 (~1.9 h).
+  lr 1e-5, **max_seq_len 512**, Kaggle T4.
 - **Base:** `ibm-granite/granite-embedding-278m-multilingual` (Apache-2.0).
 
 ## Evaluation
 
-Fine-tuning **significantly improves the base Granite** on Kazakh retrieval, and the gain
-**generalizes to an out-of-domain set** (official speeches). Full benchmarks, baselines and
-paired-bootstrap significance tests are in the
+Evaluated at **seq 512** with the benchmark's own harness and paired-bootstrap significance
+(10k). Fine-tuning **significantly improves the base Granite** on Kazakh retrieval
+(in-domain nDCG@10 0.672 → 0.751 dense / 0.813 hybrid, p<0.001; out-of-domain speeches
+0.430 → 0.529, all tiers p<0.05). The model is **on par with the specialized kazakh-e5**
+(ALL: statistical tie, p=0.42), and the stemmer-mined hard negatives **significantly
+improve morphological (inflected) queries over the previous v1** (p=0.002), closing the
+one slice where kazakh-e5 previously led. It does **not** beat kazakh-e5 overall. Full
+tables, baselines and significance tests are in the
 [project repository](https://github.com/Tim2190/kazakh-granite-retriever).
 
 ## License & attribution

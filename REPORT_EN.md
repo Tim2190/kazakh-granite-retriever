@@ -3,54 +3,59 @@
 *Русская версия — [REPORT.md](REPORT.md).*
 
 A compact (278M) embedding model for Kazakh search and RAG, fine-tuned from
-`ibm-granite/granite-embedding-278m-multilingual` (R1). Kazakh is **not** in
-Granite's official language list — this model shows that targeted fine-tuning
-closes that gap in practice: it outperforms the specialized Kazakh models and
-markedly improves the base, while staying lightweight and reproducible.
+`ibm-granite/granite-embedding-278m-multilingual` (R1). Kazakh is **not** in Granite's
+official language list — this model shows targeted fine-tuning closes that gap in
+practice: it significantly improves the base, generalizes to a different domain, and
+runs on par with specialized Kazakh models.
+
+All numbers are at **seq 512**, using the benchmark's own harness and metrics;
+significance is paired bootstrap (10,000 resamples). The current model is **v2**;
+the previous one is available as `revision="v1"`.
 
 ---
 
-## At a glance
+## At a glance (honest)
 
-- **Beats the specialized Kazakh fine-tunes** (kazakh-e5, kazembed-v5) on two
-  independent domains.
-- **The BM25 hybrid beats the previous reference top** kazakh-e5 ⊕ BM25 (0.814 vs
-  0.808) and base multilingual-e5-base (0.785) on the primary benchmark.
-- **Significantly improves the base Granite-R1**: Wiki 0.672 → 0.752 (dense) /
-  0.814 (hybrid).
-- **The gain generalizes** to an independent OOD domain (official speeches) —
-  significant across every tier.
-- Compact (278M), trained on a single T4 (~1h45m), fully reproducible.
+- **Significantly improves the base Granite-R1** — Wiki 0.672 → **0.751** (dense) /
+  **0.813** (hybrid), p<0.001; OOD (speeches) 0.430 → **0.529**, every tier p<0.05.
+- **On par with the specialized kazakh-e5** — a statistical tie on ALL (0.751 vs 0.747,
+  p=0.42). No win.
+- **v2 is significantly stronger than v1 on morphology** (inflected 0.752 → 0.792,
+  p=0.002) — the effect of stemmer-mined hard negatives. This **closes the one place
+  kazakh-e5 still led** (morphology: was p=0.001 in its favor → now p=0.06, a tie).
+- **The gain generalizes** to an independent OOD domain, including the genuinely
+  semantic tiers.
+- Compact (278M), trained on a single Kaggle T4, fully reproducible.
 
 ## Where the model stands (honestly)
 
 Primary benchmark [Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark)
-(Wikipedia, 300 queries, 8,370 passages), nDCG@10 (ALL):
+(Wikipedia, 300 queries, 8,370 passages), nDCG@10 (ALL), @512. We have no paired test
+across third-party systems, so their numbers are a reference, not a strict ranking:
 
-| # | system | ALL |
-|---|---|---|
-| 1 | bge-m3 | 0.866 |
-| 2 | jina-v3 | 0.821 |
-| **3** | **Granite-278m-kk ⊕ BM25 (ours)** | **0.814** |
-| 4 | kazakh-e5 ⊕ BM25 | 0.808 |
-| 5 | cohere embed-v4 | 0.800 |
-| 6 | multilingual-e5-base | 0.785 |
-| 7 | BM25 + Kazakh stemmer | 0.754 |
-| **8** | **Granite-278m-kk (ours, dense)** | **0.752** |
-| 9 | kazakh-e5 (specialized) | 0.747 |
-| 10 | Granite-R1 278m (base, zero-shot) | 0.672 |
+| system | ALL |
+|---|---|
+| bge-m3 | ~0.866 |
+| jina-v3 | ~0.821 |
+| **Granite-278m-kk ⊕ BM25 (our hybrid)** | **0.813** |
+| kazakh-e5 ⊕ BM25 | ~0.808 |
+| multilingual-e5-base | ~0.785 |
+| BM25 + Kazakh stemmer | 0.757 |
+| **Granite-278m-kk (ours, dense)** | **0.751** |
+| kazakh-e5 (specialized) | 0.747 |
+| Granite-R1 278m (base, zero-shot) | 0.672 |
 
-The model sits in the top tier: the dense version beats the specialized Kazakh
-kazakh-e5, and the BM25 hybrid beats its hybrid and the base e5. Strong general
-multilingual models (bge-m3, jina-v3) remain ahead — a target for further work.
+The model sits in the top tier: the hybrid is on par with kazakh-e5 ⊕ BM25, and the
+dense model is level with kazakh-e5 (a paired tie). Strong general models (bge-m3,
+jina-v3) remain ahead — a target for further work. **We do NOT claim to beat kazakh-e5**
+— on ALL it is a tie.
 
 ## Benchmarks & sources
 
 - **[Kaz-RAG-search-benchmark](https://github.com/Tim2190/Kaz-RAG-search-benchmark)** —
   the primary benchmark (Kazakh Wikipedia). Source of the comparative leaderboard and the
   eval harness: `src/retrieval` (DenseIndex, BM25 + Kazakh stemmer), `src/eval` (metrics,
-  paired bootstrap). Our `eval.py` / `eval_ood.py` import it directly — numbers are
-  computed by the same code as the benchmark's.
+  paired bootstrap). Our `eval.py` / `eval_ood.py` import it directly.
 - **[RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ)** —
   the independent OOD benchmark (official speeches, akorda.kz / nazarbayev.kz).
 - **[KazQAD](https://github.com/IS2AI/KazQAD)** — training passages (Kazakh Wikipedia,
@@ -58,127 +63,129 @@ multilingual models (bge-m3, jina-v3) remain ahead — a target for further work
 
 ## How it was built
 
-Full pipeline — 8 scripts in `scripts/`.
+1. **Base selection (`zeroshot_107m.py`).** Zero-shot of all Granite models. Flagship —
+   **278m R1** (the strongest zero-shot Granite, 0.672).
+2. **Data (`prepare_data.py`).** KazQAD: 825K passages + labeled triples → 3,893
+   query→gold pairs + hard negatives (rel=0).
+3. **Anti-leak (`check_overlap.py`).** Dedup of train against the benchmark by title +
+   near-dup + article_id.
+4. **Synthetic data (`generate_synthetic.py`).** Question generation (Gemini) over Kazakh
+   Wikipedia passages, balanced by type, with strict anti-leak → **57,369 pairs** (after
+   dedup) from ~19K articles.
+5. **Hard negatives (`mine_hard_negatives.py`).** For each query, top BM25 with a **Kazakh
+   stemmer** minus the gold → morphological decoys (1 per pair). This step is what
+   distinguishes v2 from v1.
+6. **Train-file assembly (`build_train_v2.py`).** id → texts from corpus + KazQAD gold =
+   61,102 training examples.
+7. **Training (`train.py`).** sentence-transformers, CachedMNRL, 278m, 2 epochs, lr 1e-5,
+   **max_seq_len 512**, fp16 save, Kaggle T4 (~7.5 h on 2×T4).
+8. **Evaluation (`eval.py`, `eval_ood.py`).** Same harness and metrics, paired bootstrap
+   (10k), strictly at seq 512. Hybrid — RRF(dense, BM25 + Kazakh stemmer).
 
-1. **Base selection (`zeroshot_107m.py`).** Zero-shot of all Granite models.
-   **278m R1** (the strongest zero-shot Granite, 0.672) was chosen as the flagship.
-2. **Data (`prepare_data.py`).** KazQAD (Kazakh Wikipedia, CC BY-SA): 825K passages
-   + labeled triples → 3,893 query→gold pairs + hard negatives (`rel=0`).
-3. **Anti-leak (`check_overlap.py`).** Dedup of train against the eval benchmark
-   (both derive from Kazakh Wikipedia) by title + near-dup + article_id →
-   **3,733 clean pairs**.
-4. **Scaling (`generate_synthetic.py`).** Synthetic question generation (Gemini) over
-   Kazakh Wikipedia passages, balanced by type, with strict anti-leak.
-   Result: **40,084 pairs** across 11,929 distinct articles.
-5. **Training (`train.py`).** sentence-transformers, CachedMNRL, 278m, 2 epochs,
-   lr 1e-5, max_seq_len 256, fp32, Kaggle T4. Negatives: in-batch (for synthetic) +
-   labeled KazQAD negatives (`rel=0`) for gold pairs.
-6. **Evaluation (`eval.py`, `eval_ood.py`).** Same harness and metrics as the
-   benchmark, paired bootstrap (10k). Hybrid — RRF(dense, BM25 + Kazakh stemmer).
+## Results — primary benchmark (Wikipedia), @512
 
-> **What is NOT in the final model.** The Kazakh stemmer is used **only in the
-> hybrid's BM25 channel** at evaluation, not during training. Separately, BM25
-> hard-negative mining for the training pairs (`mine_hard_negatives.py`, identity
-> stemmer) was explored: on 14.7K it did **not** improve ALL and added an inflected
-> regression, so it is not in the final recipe. The decisive lever was data volume.
+**Zero-shot vs v2 (dense, nDCG@10):**
 
-## Results — primary benchmark (Wikipedia)
-
-**Zero-shot vs fine-tuned (nDCG@10):**
-
-| slice | zero-shot | fine-tuned | Δ | p |
+| slice | zero-shot | v2 | Δ | p |
 |---|---|---|---|---|
-| **ALL** | 0.671 | **0.752** | +0.081 | **<0.001** |
-| natural | 0.920 | 0.929 | +0.008 | 0.300 |
-| inflected | 0.791 | 0.766 | −0.025 | 0.128 |
-| vocabulary-gap | 0.301 | 0.562 | +0.260 | <0.001 |
-
-Significant ALL gain, natural preserved (even up), no significant regressions.
+| **ALL** | 0.672 | **0.751** | +0.079 | **<0.001** |
+| natural | 0.923 | 0.928 | +0.004 | 0.384 |
+| inflected | 0.791 | 0.792 | +0.002 | 0.475 |
+| vocabulary-gap | 0.303 | 0.534 | +0.231 | **<0.001** |
 
 **Hybrid with BM25 (Kazakh stemmer):**
 
 | slice | dense | BM25(kaz) | **hybrid** |
 |---|---|---|---|
-| **ALL** | 0.752 | 0.757 | **0.814** |
-| natural | 0.929 | 0.772 | 0.884 |
-| inflected | 0.766 | 0.736 | 0.805 |
-| vocabulary-gap | 0.562 | 0.764 | 0.752 |
+| **ALL** | 0.751 | 0.757 | **0.813** |
+| natural | 0.928 | 0.772 | 0.888 |
+| inflected | 0.792 | 0.736 | 0.822 |
+| vocabulary-gap | 0.534 | 0.764 | 0.728 |
 
-The hybrid (0.814) is above kazakh-e5 ⊕ BM25 (0.808) and e5-base (0.785).
+**v2 vs kazakh-e5 (paired bootstrap):**
 
-**Key comparison with Kazakh fine-tunes:** kazakh-e5 (0.747) and kazembed-v5 (0.642)
-— specialized Kazakh fine-tunes of multilingual-e5 — end up **below** our model
-(0.752) and below their own base e5 (0.785). Our fine-tune, by contrast, **improved**
-the base. Takeaway: a properly targeted fine-tune beats a "naive" Kazakh one.
+| slice | v2 | kazakh-e5 | Δ | p |
+|---|---|---|---|---|
+| **ALL** | 0.751 | 0.747 | +0.004 | 0.419 (tie) |
+| inflected | 0.792 | 0.836 | −0.044 | 0.063 (tie) |
+| natural | 0.928 | 0.909 | +0.019 | 0.213 |
+| vocabulary-gap | 0.534 | 0.497 | +0.037 | 0.168 |
 
-## Results — independent validation (OOD: official speeches, Akorda)
+ALL is a tie. Importantly: for v1, kazakh-e5 beat us on inflected **significantly**
+(p=0.001); for v2 that gap is **no longer significant** (p=0.063) — the specialized
+model's morphology advantage is closed.
+
+**v2 vs v1 (what the stemmer-negative round bought):**
+
+| slice | v2 | v1 | Δ | p |
+|---|---|---|---|---|
+| ALL | 0.751 | 0.742 | +0.009 | 0.084 |
+| **inflected** | **0.792** | **0.752** | **+0.040** | **0.002** |
+| natural | 0.928 | 0.921 | +0.007 | 0.106 |
+| vocabulary-gap | 0.534 | 0.553 | −0.019 | 0.055 |
+
+Only morphology improved **significantly** (inflected, p=0.002) — exactly what the
+stemmer negatives targeted. On ALL the gain is nominal but not significant (p=0.084).
+vocab-gap dipped slightly (p=0.055, borderline) — an honest trade-off: hardening
+morphology cost a little on discriminating close entities.
+
+## Results — independent validation (OOD: speeches, Akorda), @512
 
 Second benchmark [RAG-Two-Pass-Retrieval-QAZ](https://github.com/Tim2190/RAG-Two-Pass-Retrieval-QAZ):
-471 passages from akorda.kz / nazarbayev.kz speeches — a **different domain**, not
-seen in training. A generalization check.
+471 passages from akorda.kz / nazarbayev.kz speeches — a **different domain**, not seen
+in training.
 
-**Zero-shot vs fine-tuned — every tier significantly up:**
-
-| tier | zero-shot | fine-tuned | Δ | p |
+| tier | zero-shot | v2 | Δ | p |
 |---|---|---|---|---|
-| **ALL** | 0.428 | 0.507 | +0.079 | <0.001 |
-| factoid | 0.549 | 0.659 | +0.110 | <0.001 |
-| paraphrase | 0.406 | 0.474 | +0.068 | 0.019 |
-| low_overlap | 0.332 | 0.389 | +0.057 | 0.027 |
+| **ALL** | 0.430 | 0.529 | +0.099 | <0.001 |
+| factoid | 0.548 | 0.680 | +0.132 | <0.001 |
+| paraphrase | 0.406 | 0.503 | +0.097 | 0.004 |
+| low_overlap | 0.339 | 0.405 | +0.066 | 0.009 |
 
-The gain transfers to another domain across all query types, including the genuinely
-semantic ones (paraphrase, low_overlap) — a real skill, not overfitting to the first
-benchmark. On Akorda our model (dense 0.507, hybrid 0.552) beats base Granite-R1
-(0.431) and both Kazakh fine-tunes (shyngys/kazakh-e5 0.426, kazembed-v5 0.389).
-In the full Akorda field the strong general models (bge-m3 0.679, jina-v3 0.613)
-are ahead.
+Hybrid on Akorda — 0.554. The gain holds **on a different domain** and on the genuinely
+semantic tiers (paraphrase, low_overlap) — a real skill, not overfitting to benchmark #1.
+Versus v1 (dense 0.507 / hybrid 0.552), v2 is nominally a touch higher (0.529 / 0.554);
+there is no paired OOD test, so we say "no worse", nothing stronger.
 
-## Future work (further development)
+## Future work
 
-The experiment succeeded: fine-tuning turned an officially "unsupported" Granite into
-a competitive Kazakh retriever that beats specialized Kazakh models and improves the
-base on two domains. Untested levers that could push further, given motivation:
+The experiment succeeded: fine-tuning turned an officially "unsupported" Granite into a
+competitive Kazakh retriever that runs level with specialized models and significantly
+improves the base on two domains. Levers to push further:
 
-1. **More synthetic data: 40K → 60K+ pairs.** Volume was the decisive lever
-   (14.7K → 40K: 0.714 → 0.752), and the curve has not plateaued; the KazQAD corpus
-   (825K passages) scales almost without limit.
-2. **Quality hard negatives via the Kazakh stemmer.** The one **untested** version of
-   this lever. Identity-BM25 mining gave nothing (weak decoys), but the stemmer finds
-   real morphological traps. The miner is ready
-   (`mine_hard_negatives.py --stemmer kazakh-prod`) — run on the full set and retrain.
-   **60K + stemmer negatives** is the most obvious next step.
-3. **Hybrid as a single component.** Wrap Granite-ft + BM25(Kazakh stemmer) + RRF into
-   one `.search()` retriever — a production-ready artifact.
-4. **Training tuning.** More epochs/data on 278m, Matryoshka representations, LR / MNRL
-   temperature search.
-5. **Analyze the bge-m3 / jina-v3 gap** and port applicable practices into the Kazakh
-   Granite fine-tune.
+1. **More hard negatives per pair** (v2 uses 1; 2–4 may push morphology/ALL further).
+2. **More synthetic data** (57K → 100K+; the KazQAD corpus of 825K passages allows it).
+3. **Recover vocab-gap** — rebalance negatives to avoid losing on close-entity discrimination.
+4. **Hybrid as a single component** — wrap Granite-ft + BM25(stemmer) + RRF into one `.search()`.
+5. **Analyze the bge-m3 / jina-v3 gap** — what gives strong general models their edge.
 
 ## Usage
 
 ```python
 from sentence_transformers import SentenceTransformer
-m = SentenceTransformer("Tim2190/granite-278m-kk")   # 🤗 fp16, ~556 MB
+m = SentenceTransformer("Tim2190/granite-278m-kk")   # 🤗 fp16, ~556 MB (v2)
 emb = m.encode(["Балқаш көлі қайда орналасқан?"])     # no special prefixes
+# previous version: SentenceTransformer("Tim2190/granite-278m-kk", revision="v1")
 ```
 
 For the strongest setup, use the BM25 hybrid (RRF); see `eval.py --hybrid` and `scripts/`.
 
 ## Data, license, reproducibility
 
-- **Training data:** `data/synthetic_pairs.jsonl` (40,084 pairs) — synthetic over
-  KazQAD passages (Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD).
+- **Training data:** `data/synthetic_pairs.jsonl` (57,369 pairs) + hard negatives
+  (`data/synthetic_pairs.hn.ids.jsonl`) + KazQAD gold (`data/kazqad_pairs.dedup.jsonl`) —
+  synthetic over KazQAD passages (Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD).
 - **Scripts:** `zeroshot_107m.py`, `prepare_data.py`, `check_overlap.py`,
-  `generate_synthetic.py`, `mine_hard_negatives.py`, `train.py`, `eval.py`, `eval_ood.py`.
+  `generate_synthetic.py`, `mine_hard_negatives.py`, `build_train_v2.py`, `train.py`,
+  `eval.py`, `eval_ood.py`. Run notebooks — `notebooks/`.
 - **Model:** [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
-  (fp16, ~556 MB; eval directly from HF reproduces the project numbers — ALL 0.750).
-- **Run reports:** `results/*.md`.
+  (fp16, ~556 MB; v2 on `main`, v1 under the `v1` tag).
 
 ## Methodological notes
 
 - The primary benchmark's `vocabulary-gap` category, by validation, has high lexical
-  overlap with the answer (descriptive questions with rare keywords), so it is better
-  read as "discriminating close entities" than "understanding synonyms". Clean semantic
-  evidence comes from the OOD paraphrase / low_overlap tiers.
-- All comparisons use the benchmark's own harness and metrics; significance is paired
-  bootstrap (10,000 resamples).
+  overlap with the answer, so it is better read as "discriminating close entities" than
+  "understanding synonyms". Clean semantic evidence comes from the OOD paraphrase /
+  low_overlap tiers.
+- All comparisons use the benchmark's own harness and metrics at seq 512; significance is
+  paired bootstrap (10,000 resamples).

@@ -3,39 +3,43 @@
 *Русская версия — [README.md](README.md).*
 
 **🤗 Model on HuggingFace: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)** (fp16, ~556 MB).
+Current revision is **v2** (morphology-hardened); the previous one is available as `revision="v1"`.
 
 **Granite-278m-kk** — a compact (278M) embedding model for Kazakh search and RAG,
 fine-tuned from `ibm-granite/granite-embedding-278m-multilingual` (R1). Kazakh is not
 in Granite's official language list — this model shows targeted fine-tuning closes
 that gap in practice.
 
-> **📄 Full report — [REPORT_EN.md](REPORT_EN.md)** (method, all tables, conclusions).
+> **📄 Full report — [REPORT_EN.md](REPORT_EN.md)** (method, all tables, significance).
 
-## Summary
+## Summary (honest, by significance)
 
-- Beats the specialized Kazakh fine-tunes (kazakh-e5, kazembed-v5) on two independent
-  domains.
-- The BM25 hybrid (**0.814** nDCG@10) beats the kazakh-e5 ⊕ BM25 reference (0.808) and
-  base e5-base (0.785) on the primary benchmark.
-- Significantly improves the base Granite-R1 (0.672 → 0.752 dense / 0.814 hybrid).
-- The gain is confirmed on an independent OOD domain (official speeches) — significant
-  across all tiers.
+All comparisons run at seq 512, using the benchmark's own harness and metrics;
+significance is paired bootstrap (10k).
 
-**Primary benchmark (Wikipedia), nDCG@10 (ALL):**
+- **Significantly improves the base Granite-R1** both in-domain (Wiki: 0.672 → **0.751**
+  dense / **0.813** hybrid, p<0.001) and on an independent OOD set (speeches: 0.430 →
+  **0.529**, every tier p<0.05).
+- **On par with the specialized kazakh-e5** — a statistical tie on ALL (0.751 vs 0.747,
+  p=0.42). No win here, and we will not claim one.
+- **v2 is significantly stronger than v1 on morphology** (inflected 0.752 → 0.792,
+  p=0.002) — the effect of hard negatives mined with a Kazakh stemmer. This **closes
+  the one place kazakh-e5 still led** (morphology: was p=0.001 in its favor → now p=0.06,
+  a tie).
 
-| # | system | ALL |
-|---|---|---|
-| 1 | bge-m3 | 0.866 |
-| 2 | jina-v3 | 0.821 |
-| **3** | **Granite-278m-kk ⊕ BM25 (ours)** | **0.814** |
-| 4 | kazakh-e5 ⊕ BM25 | 0.808 |
-| 6 | multilingual-e5-base | 0.785 |
-| **8** | **Granite-278m-kk (ours, dense)** | **0.752** |
-| 9 | kazakh-e5 | 0.747 |
+**Primary benchmark (Wikipedia), nDCG@10 @512:**
 
-Top tier: the dense model beats the specialized kazakh-e5, and the hybrid beats its
-BM25 combo and e5-base. Strong general models (bge-m3, jina-v3) are ahead — a target
-for further work.
+| slice | zero-shot | v2 dense | v2 ⊕ BM25 | v2 vs kazakh-e5 (Δ, p) |
+|---|---|---|---|---|
+| **ALL** | 0.672 | **0.751** | **0.813** | +0.004, p=0.42 (tie) |
+| inflected | 0.791 | 0.792 | 0.822 | −0.044, p=0.06 (tie) |
+| natural | 0.923 | 0.928 | 0.888 | +0.019, p=0.21 |
+| vocabulary-gap | 0.303 | 0.534 | 0.728 | +0.037, p=0.17 |
+
+Where the model sits (we have no paired test across third-party systems, so this is
+approximate): the hybrid **0.813** is on par with kazakh-e5 ⊕ BM25 (~0.808) and above
+e5-base (~0.785); strong general multilingual models (bge-m3 ~0.866, jina-v3 ~0.821)
+remain ahead — a target for further work.
 
 ## Benchmarks & sources
 
@@ -58,21 +62,27 @@ Ratings and evaluation run on these benchmarks; our `eval.py` / `eval_ood.py`
 | base selection (zero-shot) | `scripts/zeroshot_107m.py` |
 | KazQAD → pairs + KazQAD negatives (rel=0) | `scripts/prepare_data.py` |
 | anti-leak vs benchmark | `scripts/check_overlap.py` |
-| synthetic data (40K pairs) | `scripts/generate_synthetic.py` |
-| training (T4, CachedMNRL) — synthetic + KazQAD gold | `scripts/train.py` |
-| evaluation + hybrid with BM25(Kazakh stemmer) | `scripts/eval.py` |
+| synthetic data (57K pairs) | `scripts/generate_synthetic.py` |
+| hard negatives, BM25 + Kazakh stemmer | `scripts/mine_hard_negatives.py` |
+| build train file (id → texts) | `scripts/build_train_v2.py` |
+| training (T4, CachedMNRL, seq 512) | `scripts/train.py` |
+| evaluation + hybrid with BM25(stemmer) | `scripts/eval.py` |
 | evaluation (OOD: speeches) | `scripts/eval_ood.py` |
-| _(ablation, not in final)_ BM25 hard-neg mining | `scripts/mine_hard_negatives.py` |
 
-The final model is trained on **synthetic (40K) + KazQAD gold** (with its `rel=0`
-negatives). The Kazakh stemmer is used **only in the hybrid's BM25 channel** at
-evaluation. BM25 hard-negative mining (`mine_hard_negatives.py`) was explored as an
-ablation — it gave no improvement and is not in the final model.
+Ready-to-run Colab/Kaggle notebooks are in `notebooks/`.
+
+**v2 was trained on:** 57,369 synthetic pairs (Kazakh Wikipedia) + 1 hard negative per
+pair (mined via BM25 with a **Kazakh stemmer**) + 3,733 KazQAD gold (with its rel=0
+negatives) = 61,102 training examples. 278m, CachedMNRL, 2 epochs, lr 1e-5,
+**max_seq_len 512**, Kaggle T4. What differs from v1: the stemmer negatives (morphology)
+and training at seq 512.
 
 ## Data and license
 
-`data/synthetic_pairs.jsonl` — 40,084 pairs, synthetic over **KazQAD** passages
-(Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD). Full results in `results/`.
+`data/synthetic_pairs.jsonl` — 57,369 pairs (after anti-leak), synthetic over **KazQAD**
+passages (Kazakh Wikipedia, **CC BY-SA 4.0**, attribution to KazQAD). Compact negative
+artifacts — `data/synthetic_pairs.hn.ids.jsonl`, KazQAD gold — `data/kazqad_pairs.dedup.jsonl`.
+Full results in `results/`.
 
 Model: [`Tim2190/granite-278m-kk`](https://huggingface.co/Tim2190/granite-278m-kk)
-(fp16, ~556 MB; reproduces the project numbers, ALL 0.750 from HF).
+(fp16, ~556 MB; v2 on `main`, v1 under the `v1` tag).
