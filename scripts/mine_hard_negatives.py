@@ -42,6 +42,7 @@ import os
 import random
 import sys
 import time
+import urllib.error
 import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -104,30 +105,54 @@ class KazakhStemmerProd:
     name = "kazakh"
     BASE = "https://kazakh-stemmer-590833642796.europe-west1.run.app"
 
-    def __init__(self, cache_path="data/stem_cache.json", max_per_sec=5, batch=1000):
+    def __init__(self, cache_path="data/stem_cache.json", max_per_sec=5, batch=1000,
+                 max_requests=0, attempts=5):
         self.key = os.environ.get("KAZAKH_STEMMER_KEY")
         if not self.key:
             raise SystemExit("Нет KAZAKH_STEMMER_KEY в окружении (это X-API-Key стеммера).")
         self.endpoint = self.BASE + "/stem/batch"
         self.cache_path = cache_path
         self.batch = batch
+        self.attempts = attempts            # попыток на батч до дробления
+        self.max_requests = max_requests    # 0 = без лимита; иначе budget-guard
         self.interval = 1.0 / max_per_sec
         self.cache: Dict[str, str] = {}
         if cache_path and os.path.exists(cache_path):
             self.cache = json.load(open(cache_path, encoding="utf-8"))
         self.requests_made = 0
+        self.failed_words: List[str] = []
 
     @staticmethod
     def _trivial(t: str) -> bool:
         return t.isdigit() or len(t) <= 1
 
     def _post(self, words: List[str]):
+        """POST с ретраями и экспоненциальным backoff. 401/403 — фатально;
+        429 — дольше ждём; 5xx/сеть/таймаут — повтор. Не глотает ошибку молча:
+        если все попытки исчерпаны — поднимает исключение (вызывающий дробит батч)."""
         body = json.dumps({"words": words}).encode("utf-8")
-        req = urllib.request.Request(
-            self.endpoint, data=body, method="POST",
-            headers={"X-API-Key": self.key, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read().decode("utf-8"))
+        delay, last = 2.0, None
+        for _ in range(self.attempts):
+            try:
+                req = urllib.request.Request(
+                    self.endpoint, data=body, method="POST",
+                    headers={"X-API-Key": self.key, "Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    return json.loads(r.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                last = e
+                if e.code in (401, 403):
+                    raise SystemExit(f"Стеммер: авторизация отклонена ({e.code}) — "
+                                     f"проверь KAZAKH_STEMMER_KEY.")
+                if e.code == 429:                       # rate/quota — ждём дольше
+                    time.sleep(delay * 2); delay = min(delay * 2, 60); continue
+                if 500 <= e.code < 600:                 # серверная — повтор
+                    time.sleep(delay); delay = min(delay * 2, 60); continue
+                raise                                    # прочие 4xx — не ретраим
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                last = e
+                time.sleep(delay); delay = min(delay * 2, 60); continue
+        raise last if last else RuntimeError("стеммер: неизвестный сбой")
 
     def _save(self):
         if self.cache_path:
@@ -141,23 +166,47 @@ class KazakhStemmerProd:
             if self._trivial(t):
                 self.cache[t] = t
         n_req = -(-len(uniq) // self.batch)
-        print(f"Стеммер (prod): {len(uniq):,} уникальных слов → ~{n_req} запросов "
-              f"(бюджет Free: 1000/мес). Кэш: {self.cache_path}")
-        for i in range(0, len(uniq), self.batch):
-            chunk = uniq[i:i + self.batch]
+        print(f"Стеммер (prod): {len(uniq):,} новых уникальных слов → ~{n_req} запросов "
+              f"(батч {self.batch}). Кэш: {self.cache_path}")
+        if self.max_requests and n_req > self.max_requests:
+            raise SystemExit(
+                f"Нужно ~{n_req} запросов, а лимит --max-stem-requests={self.max_requests}. "
+                f"Уменьши --pool-sample или подними лимит (Free-план стеммера — 1000/мес).")
+        # очередь батчей; при сбое батч дробится пополам и возвращается в голову
+        queue = [uniq[i:i + self.batch] for i in range(0, len(uniq), self.batch)]
+        done = 0
+        while queue:
+            chunk = queue.pop(0)
             try:
                 for it in self._post(chunk):
                     self.cache[it["word"]] = it.get("stem") or it["word"]
                 self.requests_made += 1
+            except SystemExit:
+                raise                                    # фатальная авторизация — наружу
             except Exception as e:
-                print(f"  [warn] батч стеммера упал ({e}) — слова оставлены как есть")
-                for w in chunk:
-                    self.cache[w] = w
-            if (i // self.batch) % 20 == 0:
+                if len(chunk) > 1:                       # дробим и повторим
+                    mid = len(chunk) // 2
+                    queue.insert(0, chunk[mid:])
+                    queue.insert(0, chunk[:mid])
+                    print(f"  [warn] батч упал ({e}) — дроблю {len(chunk)}→2× и повторю")
+                    continue
+                print(f"  [warn] слово не отстеммилось после ретраев: {chunk[0]!r} — identity")
+                self.cache[chunk[0]] = chunk[0]
+                self.failed_words.append(chunk[0])
+            done += 1
+            if done % 20 == 0:
                 self._save()
+                print(f"  …запросов {self.requests_made}, кэш {len(self.cache):,}")
+            if self.max_requests and self.requests_made >= self.max_requests:
+                print(f"  [i] достигнут лимит запросов ({self.max_requests}) — "
+                      f"стоп. Резюм добьёт остаток позже (кэш сохранён).")
+                break
             time.sleep(self.interval)
         self._save()
-        print(f"Стеммер (prod): запросов сделано {self.requests_made}")
+        msg = f"Стеммер (prod): запросов сделано {self.requests_made}"
+        if self.failed_words:
+            msg += f"; не отстеммилось слов: {len(self.failed_words)} (identity)"
+        print(msg)
 
     def stem(self, token: str) -> str:
         if token in self.cache:
@@ -173,11 +222,12 @@ class KazakhStemmerProd:
         return s
 
 
-def build_analyzer(benchmark_root: str, stemmer_name: str, stem_cache: str):
+def build_analyzer(benchmark_root: str, stemmer_name: str, stem_cache: str,
+                   max_stem_requests: int = 0):
     sys.path.insert(0, str(Path(benchmark_root).resolve()))
     from src.preprocess.tokenize import tokenize
     if stemmer_name == "kazakh-prod":
-        stemmer = KazakhStemmerProd(cache_path=stem_cache)
+        stemmer = KazakhStemmerProd(cache_path=stem_cache, max_requests=max_stem_requests)
 
         def analyze(text: str) -> List[str]:
             return [stemmer.stem(t) for t in tokenize(text)]
@@ -202,6 +252,10 @@ def main() -> None:
                          "kazakh-prod — production (/stem/batch, X-API-Key из KAZAKH_STEMMER_KEY).")
     ap.add_argument("--stem-cache", default="data/stem_cache.json",
                     help="Файл кэша стемминга (слово→корень), резюмируемо между прогонами.")
+    ap.add_argument("--max-stem-requests", type=int, default=0,
+                    help="Budget-guard: макс. запросов к стеммеру (0 — без лимита). "
+                         "Free-план стеммера — 1000/мес; при превышении warm остановится, "
+                         "резюм добьёт позже.")
     ap.add_argument("--pool-sample", type=int, default=80000,
                     help="Размер пула кандидатов-негативов (позитивы включаются всегда).")
     ap.add_argument("--n-neg", type=int, default=4, help="Сколько негативов на запрос.")
@@ -213,9 +267,14 @@ def main() -> None:
     args = ap.parse_args()
     random.seed(args.seed)
 
-    analyze, tokenize, stemmer = build_analyzer(args.benchmark_root, args.stemmer, args.stem_cache)
+    analyze, tokenize, stemmer = build_analyzer(
+        args.benchmark_root, args.stemmer, args.stem_cache, args.max_stem_requests)
 
     pairs = [json.loads(l) for l in open(args.pairs, encoding="utf-8") if l.strip()]
+    # синтетика зовёт поле passage_id; prepare_data — positive_id. Нормализуем.
+    for p in pairs:
+        if not p.get("positive_id"):
+            p["positive_id"] = p.get("passage_id", "")
     print(f"Пар: {len(pairs):,}")
 
     files = sorted(glob.glob(os.path.expanduser(args.corpus)))
