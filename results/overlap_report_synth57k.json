@@ -1,0 +1,21 @@
+{
+  "pairs_in": 57384,
+  "pairs_kept": 57369,
+  "pairs_dropped": 15,
+  "drop_reasons": {
+    "title": 9,
+    "near_dup": 6,
+    "article_id": 0
+  },
+  "negatives_stripped": 0,
+  "article_id_overlap_diagnostic": 0,
+  "benchmark_passages": 8370,
+  "benchmark_articles": 795,
+  "params": {
+    "shingle_size": 5,
+    "jaccard": 0.5,
+    "probe": 48,
+    "drop_by_article_id": false,
+    "benchmark_has_titles": true
+  }
+}
