@@ -28,10 +28,14 @@
 ## Ячейка 2 — dense v2 vs zero-shot (278m) и vs kazakh-e5, seq 512
 
 ```python
-import os
+import os, glob
 os.environ["KAZAKH_STEMMER_KEY"] = ""   # понадобится только для --hybrid (Ячейка 4)
 
-MODEL_V2 = "/kaggle/input/model-v2/granite-278m-kk-v2"   # ← поправь путь
+# автопоиск папки модели в подключённом Input (slug у Kaggle произвольный)
+cands = glob.glob("/kaggle/input/**/granite-278m-kk-v2", recursive=True)
+assert cands, "нет granite-278m-kk-v2 в /kaggle/input — Add Input → Notebook Output → кернел Model V2"
+MODEL_V2 = cands[0]
+print("MODEL_V2 =", MODEL_V2)
 
 !python scripts/eval.py \
     --benchmark-root ../bench \
