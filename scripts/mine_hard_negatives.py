@@ -7,9 +7,9 @@
 Обучение против них учит модель, что общие слова ≠ релевантность → бьёт в
 vocab-gap. BM25 здесь — только инструмент подготовки данных; в модели его нет.
 
-Стеммер — ТВОЙ (Kaz-RAG-search-benchmark/src/preprocess): get_stemmer("kazakh")
-= Cloud Run сервис (батч 50, 30 req/min, дисковый кэш). Симметрично к запросу и
-корпусу, как в бенчмарке. Для быстрой проверки рычага есть --stemmer identity.
+Стеммер — из Kaz-RAG-search-benchmark/src/preprocess. `kazakh-prod` — production
+Cloud Run сервис (/stem/batch, X-API-Key, дисковый кэш); `kazakh` — demo-сервис;
+`identity` — без стемминга (быстрая проверка рычага). Симметрично к запросу и корпусу.
 
 Масштаб: BM25 на инвертированном индексе (не брутфорс), пул кандидатов ограничен
 (--pool-sample), т.к. прогрев стеммера по всему 825K корпусу — часы.
@@ -30,7 +30,7 @@ vocab-gap. BM25 здесь — только инструмент подгото�
         --stemmer identity --pool-sample 80000 --n-neg 4 \\
         --out data/synthetic_pairs.hn.jsonl
 
-Финальный (твой стеммер):  --stemmer kazakh   (медленно: прогрев кэша через сервис)
+Финальный рецепт:  --stemmer kazakh-prod   (прогрев кэша через сервис, резюмируемо)
 """
 from __future__ import annotations
 
@@ -242,7 +242,7 @@ def build_analyzer(benchmark_root: str, stemmer_name: str, stem_cache: str,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="BM25(+казахский стеммер) hard-negative майнинг")
-    ap.add_argument("--benchmark-root", required=True, help="Клон Kaz-RAG-search-benchmark (там твой стеммер).")
+    ap.add_argument("--benchmark-root", required=True, help="Клон Kaz-RAG-search-benchmark (его токенайзер/стеммер).")
     ap.add_argument("--pairs", required=True, help="JSONL с query/positive/positive_id.")
     ap.add_argument("--corpus", required=True, help="Путь/glob к пассажам KazQAD (.jsonl[.gz]).")
     ap.add_argument("--exclude-article-ids", default=None, help="Статьи бенчмарка (антилик пула).")
@@ -298,7 +298,7 @@ def main() -> None:
             uniq.update(tokenize(corpus[did]["text"]))
         for p in pairs:
             uniq.update(tokenize(p["query"]))
-        print(f"Прогрев стеммера: {len(uniq):,} уникальных токенов (30 req/min — это надолго)…")
+        print(f"Прогрев стеммера: {len(uniq):,} уникальных токенов…")
         stemmer.warm(uniq)
 
     print("Индексация BM25 (инвертированный)…")

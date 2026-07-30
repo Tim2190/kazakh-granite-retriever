@@ -1,43 +1,41 @@
-# Майнинг hard-negatives казахским стеммером (Colab)
+# Hard-negative mining with the Kazakh stemmer (Colab)
 
-Эндпоинт стеммера — Cloud Run (`run.app`), из основной среды он заблокирован,
-поэтому майнинг гоним на Colab (там сеть до стеммера есть).
+The stemmer endpoint is a Cloud Run service (`run.app`), so mining runs where that host is
+reachable (e.g. Colab). The client has retries + backoff, splits a batch on failure,
+distinguishes 401/429/5xx, and honors a `--max-stem-requests` budget guard. The stemming
+cache (`data/stem_cache.json`) is resumable — re-run the cell after any interruption.
 
-Клиент упрочнён: ретраи+backoff, дробление батча при сбое, различение
-401/429/5xx, budget-guard `--max-stem-requests`. Кэш стемминга (`data/stem_cache.json`)
-резюмируемый — при обрыве просто перезапусти ячейку.
-
-Бюджет (оценка на наших данных): pool≈30K → **~200–250 запросов** к стеммеру
-(Free-план — 1000/мес), с запасом.
+Budget estimate: a pool of ~30K passages needs ~200–250 stemmer requests (well under the
+free-tier monthly cap).
 
 ---
 
-## Ячейка 1 — клоны и зависимости
+## Cell 1 — clones and dependencies
 
 ```python
 !pip -q install numpy
 
-GH_TOKEN = ""            # github PAT (repo) — для clone и push результата
+GH_TOKEN = ""            # GitHub PAT (repo scope) for clone and for pushing results
 GH_USER  = "Tim2190"
 BRANCH   = "main"
 auth = f"{GH_TOKEN}@" if GH_TOKEN else ""
 
-# наш репо (скрипт, synthetic_pairs.jsonl, exclude-ids, кэш стеммера если уже есть)
+# project repo (script, synthetic_pairs.jsonl, exclude-ids, stem cache if present)
 !git clone --branch {BRANCH} https://{auth}github.com/{GH_USER}/kazakh-granite-retriever.git
-# бенчмарк — оттуда берётся токенайзер src.preprocess.tokenize
+# benchmark — provides the tokenizer src.preprocess.tokenize
 !git clone --depth 1 https://{auth}github.com/{GH_USER}/Kaz-RAG-search-benchmark.git bench
-# корпус KazQAD (кандидаты негативов)
+# KazQAD corpus (negative candidates)
 !git clone --depth 1 https://github.com/IS2AI/KazQAD.git
 
 %cd kazakh-granite-retriever
-!git config user.email "9189920ts@gmail.com" && git config user.name "Tim2190"
+!git config user.email "you@example.com" && git config user.name "your-name"
 ```
 
-## Ячейка 2 — майнинг
+## Cell 2 — mining
 
 ```python
 import os
-os.environ["KAZAKH_STEMMER_KEY"] = ""     # X-API-Key стеммера
+os.environ["KAZAKH_STEMMER_KEY"] = ""     # X-API-Key of the stemmer service
 
 !python scripts/mine_hard_negatives.py \
     --benchmark-root ../bench \
@@ -51,22 +49,35 @@ os.environ["KAZAKH_STEMMER_KEY"] = ""     # X-API-Key стеммера
     --out data/synthetic_pairs.hn.jsonl
 ```
 
-## Ячейка 3 — вернуть результат в репо
+## Cell 3 — push a compact ids-only artifact back
+
+The full-text output is large (hundreds of MB). Only the query + passage ids are pushed;
+`build_train_v2.py` re-expands the texts from the corpus at training time.
 
 ```python
-# кэш стемминга коммитим тоже — резюмируемость + не тратить запросы повторно
-!wc -l data/synthetic_pairs.hn.jsonl
-!git add data/synthetic_pairs.hn.jsonl data/stem_cache.json
-!git commit -m "hard-negatives: kazakh-prod stemmer, pool 30k (colab)"
-!git push origin {BRANCH}
+import json
+src, dst = "data/synthetic_pairs.hn.jsonl", "data/synthetic_pairs.hn.ids.jsonl"
+with open(src, encoding="utf-8") as f, open(dst, "w", encoding="utf-8") as o:
+    for line in f:
+        d = json.loads(line)
+        o.write(json.dumps({
+            "query": d["query"],
+            "positive_id": d.get("positive_id") or d.get("passage_id", ""),
+            "negative_ids": d.get("negative_ids", []),
+            "category": d.get("category"),
+        }, ensure_ascii=False) + "\n")
+
+!git add -f data/synthetic_pairs.hn.ids.jsonl
+!git commit -m "hard-negatives (ids-only): kazakh-prod stemmer, pool 30k"
+!git push origin main
 ```
 
-## Заметки
+## Notes
 
-- **Прервалось на стеммере?** Перезапусти Ячейку 2 — кэш `data/stem_cache.json`
-  подхватится, повторных запросов к сервису не будет.
-- **`--neg-rank-start 2`** — берём негативы не с топ-1 BM25 (там может случайно
-  оказаться релевантное), а с ранга ≥2; плюс из негативов жёстко исключаются сам
-  positive и пассажи той же статьи (защита от false-negative).
-- **Дальше:** `data/synthetic_pairs.hn.jsonl` идёт в `train.py` — негативы там
-  разворачиваются в триплеты `(query, positive, hard_neg)` (`--max-neg-per-pair`).
+- **Interrupted mid-mining?** Re-run Cell 2 — `data/stem_cache.json` is picked up and no
+  stemmer requests are repeated.
+- **`--neg-rank-start 2`** takes negatives from BM25 rank ≥2 (not top-1, which may be
+  incidentally relevant); the positive itself and same-article passages are always excluded
+  (false-negative guard).
+- **Next:** `build_train_v2.py` assembles the training file from the ids artifact; see
+  `notebooks/kaggle_train_v2.md`.

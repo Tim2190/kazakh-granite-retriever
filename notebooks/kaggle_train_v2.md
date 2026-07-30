@@ -1,19 +1,17 @@
-# Переобучение v2 на Kaggle T4 (57K синтетика + стеммер-негативы + KazQAD gold)
+# Training on Kaggle T4 (synthetic + stemmer hard-negatives + KazQAD gold)
 
-Отличие от v1: (1) 57K синтетики вместо 40K, (2) **hard-negatives, намайненные
-казахским стеммером** (по 1–2 на пару), (3) обучение на **seq 512** — чтобы модель
-училась на полных пассажах и нативно работала на честном замере @512 (у v1 был
-разрыв: обучали на 256, мерили на 512).
+Trains the model on 57,369 synthetic pairs with stemmer-mined hard negatives plus
+3,733 KazQAD gold pairs, at **seq 512** (so the model natively handles the 512-token
+evaluation).
 
-Тяжёлый train-файл (~240 МБ) в репо не лежит — собирается на месте из лёгких
-артефактов (`hn.ids.jsonl` 16 МБ + `kazqad_pairs.dedup.jsonl` 7 МБ + корпус KazQAD).
+The full-text training file (~240 MB) is not stored in git — it is assembled on the
+machine from the compact artifacts (`data/synthetic_pairs.hn.ids.jsonl`,
+`data/kazqad_pairs.dedup.jsonl`) and the KazQAD corpus.
 
-Запусти как **Save & Run All (Commit)** — тогда 12-часовая сессия отработает без
-тебя, а модель осядет в Output.
+Run as **Save & Run All (Commit)** for an unattended 12-hour session; the model is
+written to Output.
 
----
-
-## Ячейка 1 — зависимости, клоны, сборка train-файла
+## Cell 1 — dependencies, clones, build the train file
 
 ```python
 !pip -q install -U sentence-transformers datasets accelerate
@@ -22,21 +20,18 @@
 !git clone --depth 1 https://github.com/IS2AI/KazQAD.git
 %cd kazakh-granite-retriever
 
-# собрать полнотекстовый train-файл (id → тексты из корпуса) + KazQAD gold
 !python scripts/build_train_v2.py \
     --ids  data/synthetic_pairs.hn.ids.jsonl \
     --gold data/kazqad_pairs.dedup.jsonl \
     --corpus '../KazQAD/data/information-retrieval/corpus/*.jsonl.gz' \
     --out data/train_pairs_v2.jsonl
-!wc -l data/train_pairs_v2.jsonl
 ```
 
-## Ячейка 2 — обучение
+## Cell 2 — training
 
 ```python
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-os.environ["HF_TOKEN"] = ""     # только если будешь пушить сразу на HF (иначе пусто)
 
 !python scripts/train.py \
     --data data/train_pairs_v2.jsonl \
@@ -47,40 +42,33 @@ os.environ["HF_TOKEN"] = ""     # только если будешь пушит�
     --max-neg-per-pair 1 --fp16
 ```
 
-- **`--fp16` обязателен на T4.** Без него обучение идёт в fp32 ≈ **57 с/шаг**
-  (≈7.5 ч/эпоху → 2 эпохи ~15 ч, вылет за 12-часовой лимит Kaggle, а при
-  `save_strategy="no"` это = пустой выход). fp16 ≈ 1.7–2× быстрее → 2 эпохи ~8 ч.
-  Модель всё равно держится в fp32 как master (строка 122), fp16 — только autocast.
-- **Проверь темп на шаге ~50** (лог печатает каждые 50 шагов): если s/it высокий и
-  2 эпохи не влезают в ~11 ч — ставь `--epochs 1` (одна эпоха гарантированно влезает).
-- **`--max-neg-per-pair 1`** — 1 сильный намайненный негатив/пару (+127 in-batch),
-  ~60K триплетов. Есть запас по времени — можно `2` (≈115K триплетов, дольше).
-- **`--mini-batch 8`** — под T4 16 ГБ на seq 512. `CUDA out of memory` → поставь `4`
-  (на эффективный батч 128 не влияет, CachedMNRL аккумулирует).
-- Итоговое сохранение — fp16 (~556 МБ) → `/kaggle/working/granite-278m-kk-v2`.
+- **`--fp16` is required on T4.** Without it training runs in fp32 (~57 s/step, ~15 h for
+  2 epochs on a single T4 — over the 12-hour session limit). With `--fp16` and 2×T4 the
+  effective batch is 256, ~476 steps total, ~7.5 h. The model stays in fp32 as master
+  weights; fp16 is autocast only.
+- **`--mini-batch 8`** fits T4 16 GB at seq 512; drop to `4` on `CUDA out of memory`
+  (CachedMNRL accumulates, so the effective batch is unchanged).
+- **`--max-neg-per-pair 1`** — one mined hard negative per pair (+127 in-batch), ~60K
+  triplets. Raise to `2` for more, at the cost of a longer run.
+- The model is saved fp16 (~556 MB) to `/kaggle/working/granite-278m-kk-v2`.
 
-## Ячейка 3 (опц.) — сразу запушить на HF как ревизию v2
+## Cell 3 (optional) — publish to the Hub
 
-Только если замер уже подтвердит, что v2 значимо лучше. Иначе сначала eval@512.
+Publishes the trained model. The guard skips the push when no token is set, so
+`Save & Run All` does not fail on an empty token.
 
 ```python
-# сохранить v1 как ревизию ПЕРЕД перезаписью (один раз, из среды с доступом к HF):
-#   huggingface-cli repo tag create Tim2190/granite-278m-kk v1
 import os
 if os.environ.get("HF_TOKEN"):
+    from huggingface_hub import HfApi
     from sentence_transformers import SentenceTransformer
+    # keep the current Hub revision as a tag before overwriting:
+    HfApi(token=os.environ["HF_TOKEN"]).create_tag(
+        "Tim2190/granite-278m-kk", tag="v1", revision="main")
     m = SentenceTransformer("/kaggle/working/granite-278m-kk-v2")
-    m.push_to_hub("Tim2190/granite-278m-kk", token=os.environ["HF_TOKEN"])
+    m.push_to_hub("Tim2190/granite-278m-kk", token=os.environ["HF_TOKEN"], exist_ok=True)
 else:
-    print("HF_TOKEN пуст — пропускаю пуш (это норм: сначала eval@512, потом уже HF).")
+    print("HF_TOKEN not set — skipping push.")
 ```
 
-> ⚠️ Если гонишь как «Save & Run All» с пустым `HF_TOKEN` — БЕЗ этого `if` ячейка
-> роняет весь ран (`LocalProtocolError`) и Kaggle красит его «failed», хотя модель
-> уже сохранена в Output. С `if` — ран зелёный, модель на месте.
-
-## Дальше — честный замер (не пропускать!)
-
-Скачай `granite-278m-kk-v2` из Output и прогони `eval.py` **на seq 512** с
-`--vs-model shyngys-e5` и paired bootstrap (см. `notebooks/colab_eval_v2.md`).
-Только после значимого выигрыша на 512 — перезапись `main` на HF и правки в доках.
+Evaluation is a separate notebook: `notebooks/kaggle_eval_v2.md`.

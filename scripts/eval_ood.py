@@ -21,9 +21,9 @@ src.eval.metrics), чтобы цифры были сопоставимы с ID-�
         --benchmark-root /content/bench \\        # Kaz-RAG (нужен ради DenseIndex/metrics)
         --ood-root /content/RAG-Two-Pass-Retrieval-QAZ \\
         --base-model ibm-granite/granite-embedding-278m-multilingual \\
-        --finetuned /path/or/hf/granite-278m-40k \\
-        --max-seq-len 256 \\
-        --out results/eval_ood_278m_40k.json
+        --finetuned Tim2190/granite-278m-kk \\
+        --max-seq-len 512 \\
+        --out results/eval_ood.json
 """
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def main() -> None:
     ap.add_argument("--out", default="results/eval_ood.json")
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--batch-size", type=int, default=64)
-    ap.add_argument("--max-seq-len", type=int, default=256)
+    ap.add_argument("--max-seq-len", type=int, default=512)
     ap.add_argument("--n-resamples", type=int, default=10000)
     ap.add_argument("--bm25-stemmer", choices=["identity", "kazakh", "kazakh-prod"],
                     default="identity",
