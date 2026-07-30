@@ -69,7 +69,9 @@ Ratings and evaluation run on these benchmarks; our `eval.py` / `eval_ood.py`
 | evaluation + hybrid with BM25(stemmer) | `scripts/eval.py` |
 | evaluation (OOD: speeches) | `scripts/eval_ood.py` |
 
-Ready-to-run Colab/Kaggle notebooks are in `notebooks/`.
+Ready-to-run Colab/Kaggle notebooks are in `notebooks/`. The Kazakh stemmer (used for
+hard negatives and the hybrid's BM25 channel, key `KAZAKH_STEMMER_KEY`) is available at
+[qaz-api.vercel.app](https://qaz-api.vercel.app/).
 
 **v2 was trained on:** 57,369 synthetic pairs (Kazakh Wikipedia) + 1 hard negative per
 pair (mined via BM25 with a **Kazakh stemmer**) + 3,733 KazQAD gold (with its rel=0

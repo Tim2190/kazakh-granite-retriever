@@ -89,4 +89,5 @@ Notes:
 - All runs use `--max-seq-len 512`; embeddings are computed fresh in a clean kernel.
 - `eval_ood.py` compares the fine-tuned model against zero-shot only (no `--vs-model`).
 - The stemmer endpoint (`run.app`) and HF model downloads require open internet, available
-  on Kaggle.
+  on Kaggle. Access to the Kazakh stemmer API (`KAZAKH_STEMMER_KEY`, needed only for the
+  `--hybrid` cell) is available at <https://qaz-api.vercel.app/>.

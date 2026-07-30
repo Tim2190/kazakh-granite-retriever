@@ -69,7 +69,9 @@ e5-base (~0.785); сильные общие мультиязычные моде�
 | оценка + гибрид с BM25(стеммер) | `scripts/eval.py` |
 | оценка (OOD: речи) | `scripts/eval_ood.py` |
 
-Готовые Colab/Kaggle-ноутбуки прогонов — в `notebooks/`.
+Готовые Colab/Kaggle-ноутбуки прогонов — в `notebooks/`. Казахский стеммер (для
+hard-negatives и BM25-канала гибрида, ключ `KAZAKH_STEMMER_KEY`) — доступ на
+[qaz-api.vercel.app](https://qaz-api.vercel.app/).
 
 **v2 обучена на:** 57 369 синтетических пар (казвики) + по 1 hard-negative на пару
 (намайнен BM25 с **казахским стеммером**) + 3 733 KazQAD gold (с его rel=0 негативами)

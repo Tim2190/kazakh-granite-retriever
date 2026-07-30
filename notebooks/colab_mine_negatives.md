@@ -1,9 +1,11 @@
 # Hard-negative mining with the Kazakh stemmer (Colab)
 
 The stemmer endpoint is a Cloud Run service (`run.app`), so mining runs where that host is
-reachable (e.g. Colab). The client has retries + backoff, splits a batch on failure,
-distinguishes 401/429/5xx, and honors a `--max-stem-requests` budget guard. The stemming
-cache (`data/stem_cache.json`) is resumable — re-run the cell after any interruption.
+reachable (e.g. Colab). Access to the Kazakh stemmer API (the `KAZAKH_STEMMER_KEY` used
+below) is available at <https://qaz-api.vercel.app/>. The client has retries + backoff,
+splits a batch on failure, distinguishes 401/429/5xx, and honors a `--max-stem-requests`
+budget guard. The stemming cache (`data/stem_cache.json`) is resumable — re-run the cell
+after any interruption.
 
 Budget estimate: a pool of ~30K passages needs ~200–250 stemmer requests (well under the
 free-tier monthly cap).
